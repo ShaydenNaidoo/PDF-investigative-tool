@@ -23,6 +23,10 @@ def summarize(path, toolsets, labels, document_column='', groups=(), query='', r
             document_column = next((h for h in ('document', 'document_id', 'pdf', 'id') if h in headers), '')
         if not document_column or document_column not in headers:
             raise ValueError('Choose a column containing PDF document IDs to summarize across exemplars. Tables of totals without document IDs cannot be mapped to exemplars.')
+        if document_column in ('prefix', 'resource_type', 'resource_name', 'number', 'object', 'reference', 'scope'):
+            suggested = next((h for h in ('document', 'document_id', 'pdf', 'id') if h in headers), '')
+            if suggested:
+                raise ValueError(f'Choose {suggested} as the PDF ID column. {document_column} contains resource data, not PDF document IDs.')
         if len(groups) > 2 or any(g not in headers for g in groups) or len(set(groups)) != len(groups):
             raise ValueError('Choose up to two different result columns for the breakdown')
         if resource_type and 'resource_type' not in headers:

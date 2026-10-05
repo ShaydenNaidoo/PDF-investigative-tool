@@ -177,8 +177,9 @@ function resetSummary() {
 }
 function configureSummary(headers) {
   state.resultHeaders=headers;
-  const document=headers.find(h=>['document','document_id','pdf','id'].includes(h))||'';
-  $('#summary-document').innerHTML='<option value="">Choose a PDF ID column…</option>'+headers.map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('');$('#summary-document').value=document;
+  const candidates=['document','document_id','pdf','id'].filter(h=>headers.includes(h)),document=candidates[0]||'';
+  const documentColumns=candidates.length?candidates:headers;
+  $('#summary-document').innerHTML=(document?'':'<option value="">Choose a PDF ID column…</option>')+documentColumns.map(h=>`<option value="${esc(h)}">${esc(h)}</option>`).join('');$('#summary-document').value=document;$('#summary-document').disabled=candidates.length===1;
   const options=[{fields:[],label:'By tool · overall'}];
   if(headers.includes('resource_type')&&headers.includes('prefix'))options.push({fields:['resource_type','prefix'],label:'Resource type + prefix'});
   headers.filter(h=>h!==document).forEach(h=>options.push({fields:[h],label:h.replaceAll('_',' ')}));
@@ -200,6 +201,7 @@ async function generateSummary(scroll=false) {
   const query=summaryQuery();$('#summary-scope').textContent=`${state.job.label} · ${name} · Full saved table${query.get('q')?' · Result search: '+query.get('q'):' · No result search filter'}`;
   try {
     const data=await api(`/api/jobs/${id}/summary?${query}`);if(request!==state.summaryRequest||id!==state.job?.id||name!==$('#result-select').value||!state.summaryActive)return;
+    if(!Array.isArray(data.overview)||!Array.isArray(data.rows)||!Array.isArray(data.groups)||!Array.isArray(data.resourceTypes)||!data.counts)throw new Error('The running app server needs an update. Stop the Start PDF Analyzer task, start it again, then refresh this page.');
     state.summaryData=data;state.summaryExportQuery=query.toString();$('#summary-status').textContent='';$('#summary-content').classList.remove('hidden');$('#export-summary').disabled=false;$('#export-summary-chart').disabled=!data.overview.length;
     const selectedType=$('#summary-type').value;$('#summary-type').innerHTML='<option value="">All resource types</option>'+data.resourceTypes.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('');$('#summary-type').value=selectedType;
     const c=data.counts;$('#summary-counts').innerHTML=[['Matching result rows',c.matchedRows],['Distinct matching PDFs',c.matchedDocuments],['Rows in full source',c.sourceRows],['PDFs in full source',c.sourceDocuments]].map(([label,value])=>`<div><span>${label}</span><b>${number(value)}</b></div>`).join('');
@@ -207,7 +209,7 @@ async function generateSummary(scroll=false) {
     const columns=['tool','producer',...(data.groups.length?['breakdown']:[]),'rows','documents','exemplars','represented','coverage'];
     $('#summary-table').innerHTML=table(columns,data.rows.map(r=>`<tr>${columns.map(h=>`<td class="${h==='producer'?'summary-producer':h==='breakdown'?'mono summary-breakdown':'mono'}">${h==='tool'?`<button class="text-button" data-summary-tool="${esc(r.toolKey)}">${esc(r.tool)}</button>`:h==='breakdown'?r.values.map((v,i)=>`<span title="${esc(data.groups[i])}">${esc(v)||'<span class="muted-dash">(empty)</span>'}</span>`).join(' · '):h==='coverage'?r.coverage===null?'—':number(r.coverage)+'%':h==='producer'?esc(r[h]):number(r[h])}</td>`).join('')}</tr>`),{labels:{breakdown:data.groups.map(g=>g.replaceAll('_',' ').toUpperCase()).join(' / '),rows:'RESULT ROWS',documents:'DISTINCT PDFs',exemplars:'KNOWN EXEMPLARS',represented:'PDFs IN SOURCE',coverage:'OBSERVED COVERAGE'},empty:'No matching summary groups. Clear the result search or summary filters.'});
     pagination('#summary-pagination',data.total,data.offset,data.limit,'summary');renderSummaryChart();
-  }catch(error){if(request!==state.summaryRequest)return;state.summaryData=null;$('#summary-status').textContent=error.message;}
+  }catch(error){if(request!==state.summaryRequest)return;state.summaryData=null;$('#summary-content').classList.add('hidden');$('#export-summary').disabled=true;$('#export-summary-chart').disabled=true;$('#summary-status').textContent=error.message;}
 }
 function summaryChartSVG(data,metric) {
   const labels={documents:'Distinct PDFs',rows:'Result rows',coverage:'Observed coverage (%)'},rows=data.overview;

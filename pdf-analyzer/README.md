@@ -6,7 +6,7 @@ A local COS 721 PDF investigation app with a Vice City inspired synthwave design
 
 In VS Code, open the Command Palette (`Ctrl+Shift+P`), choose **Tasks: Run Task**, then **Start PDF Analyzer**. The task starts the backend and opens your browser at <http://127.0.0.1:8766>. Keep the task running while using the app.
 
-The backend can also be launched with `python3 pdf-analyzer/server.py --open`. Change the port with `--port` if 8766 is occupied. Required tools are `bash`, `qpdf` with JSON v2 support, `pdfinfo`, `pdftotext`, `awk`, `sed`, `grep`, `find`, `sort`, `uniq`, and `column`. Your environment already provides these. Restart the server after changing its Python files; refreshing the browser alone does not reload the backend.
+The backend can also be launched with `python3 pdf-analyzer/server.py --open`. Change the port with `--port` if 8766 is occupied. Required tools are `bash`, `qpdf` with JSON v2 support, `pdfinfo`, `pdftotext`, `awk`, `sed`, `grep`, `find`, `sort`, `uniq`, and `column`. Your environment already provides these. Restart the server after changing its Python files; refreshing the browser alone does not reload the backend. If an older backend is already running, the launcher tells you to stop the existing task and start it again. Reusing an existing server leaves saved run records unchanged.
 
 ## Investigate without terminal commands
 
@@ -60,7 +60,7 @@ The script library includes `part1_resources.sh`, `test_part1.sh`, the vector/ba
 
 1. Open **Script studio**, finish a run or select an existing run in **Run history**.
 2. In **Investigation results**, choose the detailed table, such as `all-resources.tsv`, then click **Generate summary**. Summary generation reads every row in that saved table, including rows outside the displayed results page.
-3. Choose the **PDF ID column** and **Table breakdown**. Tables using `document`, `document_id`, `pdf`, or `id` are detected automatically. Choose **By tool · overall**, a single result column, or **Resource type + prefix** when those fields are present.
+3. Choose the **PDF ID column** and **Table breakdown**. Tables using `document`, `document_id`, `pdf`, or `id` are detected automatically. When one such column is present, it is selected and fixed so resource prefixes cannot accidentally be treated as PDF IDs. Choose **By tool · overall**, a single result column, or **Resource type + prefix** when those fields are present.
 4. Filter by exemplar tool or resource type. The results search box also filters the summary; clear it to summarize the full table. Summary filters leave the raw result table available above.
 5. Switch the chart measure between **Distinct PDFs**, **Result rows**, and **Observed coverage (%)**. Click a bar or a tool in the summary table to filter to that tool; click it again to clear the tool filter. Bars also respond to Enter/Space.
 6. **Export summary CSV** exports every matching summary group, including groups outside the summary page. **Save chart SVG** exports the current graph as a standalone image suitable for an assignment; its SVG description records the run, table, filters and counts.
@@ -98,10 +98,10 @@ Resource tables page through every matching row and export the complete filtered
 
 ## Validation
 
-Run `python3 -m unittest discover -s pdf-analyzer -v`. The fourteen tests use an isolated fixture dataset and check source object references, local resource scopes and numbering gaps, API filtering/exports, script execution and persistence, cancellation, local request validation, and separation of single-document test results. They also cover strings offsets and search, exact tags, compressed objects/content, decoded streams, custom metadata and XMP, index limits, and preservation of the original PDF. Summary tests cover full-table aggregation, distinct-PDF counts, filters, coverage denominators, missing IDs, overlapping membership, complete exports, and cache refresh when results or exemplar sets change.
+Run `python3 -m unittest discover -s pdf-analyzer -v`. The fifteen tests use an isolated fixture dataset and check source object references, local resource scopes and numbering gaps, API filtering/exports, script execution and persistence, cancellation, local request validation, and separation of single-document test results. They also cover strings offsets and search, exact tags, compressed objects/content, decoded streams, custom metadata and XMP, index limits, and preservation of the original PDF. Summary tests cover full-table aggregation, distinct-PDF counts, filters, coverage denominators, missing IDs, overlapping membership, complete exports, and cache refresh when results or exemplar sets change. They also check capability reporting and rejection of unknown run views and resource columns used as PDF IDs.
 
 Browser workflow checks also covered the real dataset, supplied test script, generated-script execution, original PDF inspection, results tables, the 15-tool matrix, mobile layout, and reduced motion.
 
 The strings/metadata browser checks cover direct document shortcuts, highlighted searches, exact tags, pagination, exports, stream decoding, page text, switching documents during requests, existing resource/numbering views, and mobile layout.
 
-Summary browser checks use the real 130,026-row saved run and cover the three chart measures, bar interactions, filters, breakdowns, pagination, CSV/SVG exports, table switching, unsupported tables, stale responses, empty searches, mobile layout and reduced motion. Its aggregates were also checked against the supplied CSV.
+Summary browser checks use the real 130,026-row saved run and cover the three chart measures, bar interactions, filters, breakdowns, pagination, CSV/SVG exports, table switching, unsupported tables, stale responses, empty searches, mobile layout and reduced motion. Its aggregates were also checked against the supplied CSV. The corrected workflow was verified on the default port 8766, including clear handling of an outdated backend response and automatic PDF ID selection.

@@ -60,4 +60,4 @@ The script guide references `assign2.pdf`; add your assignment brief locally if 
 python3 -m unittest discover -s pdf-analyzer -v
 ```
 
-The fourteen tests use an isolated fixture dataset and check original references, resource scopes, filtering and exports, script execution, cancellation, persistence, result isolation, strings and compressed content, custom metadata/XMP, preservation of the original PDF, and full-table exemplar summaries.
+The fifteen tests use an isolated fixture dataset and check original references, resource scopes, filtering and exports, script execution, cancellation, persistence, result isolation, strings and compressed content, custom metadata/XMP, preservation of the original PDF, and full-table exemplar summaries.

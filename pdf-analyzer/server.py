@@ -24,6 +24,8 @@ import lab
 import inspection
 import summaries
 
+API_VERSION = 3
+
 ROOT, OBS, DATASET = lab.ROOT, lab.OBS, lab.DATASET
 STATIC = Path(__file__).resolve().parent
 RESULTS = OBS / 'part1-results'
@@ -371,7 +373,7 @@ def start_run(payload):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'PDFAnalyzer/2'
+    server_version = f'PDFAnalyzer/{API_VERSION}'
 
     def json(self, payload, status=200):
         self.body(json.dumps(payload).encode(), 'application/json; charset=utf-8', status)
@@ -399,7 +401,8 @@ class Handler(BaseHTTPRequestHandler):
         path, query = parsed.path, urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
         try:
             if path == '/api/health':
-                return self.json({'app': 'pdf-analyzer', 'version': 2})
+                return self.json({'app': 'pdf-analyzer', 'version': API_VERSION,
+                                  'capabilities': ['pdf-inspection', 'result-summaries']})
             if path == '/api/dashboard':
                 return self.json(dashboard())
             if path == '/api/resources':
@@ -438,6 +441,8 @@ class Handler(BaseHTTPRequestHandler):
                     if query.get('export'):
                         return self.export(headers, filtered(rows, query), f'{job["id"]}-{Path(name).stem}.csv')
                     return self.json(page_table(headers, rows, query))
+                if len(parts) > 4:
+                    return self.json({'error': 'Run view not found'}, 404)
                 return self.json({**job_public(job), 'stdout': read_text(directory / 'stdout.log')[-100000:],
                                   'stderr': read_text(directory / 'stderr.log')[-40000:]})
             if path == '/api/script':
@@ -592,7 +597,6 @@ if __name__ == '__main__':
     parser.add_argument('--open', action='store_true', help='Open the lab in your browser')
     args = parser.parse_args()
     RUNS.mkdir(exist_ok=True)
-    load_jobs()
     url = f'http://127.0.0.1:{args.port}'
     try:
         server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
@@ -601,15 +605,18 @@ if __name__ == '__main__':
         try:
             with urllib.request.urlopen(url + '/api/health', timeout=2) as response:
                 health = json.load(response)
-            if health.get('app') != 'pdf-analyzer' or health.get('version') != 2:
+            if health.get('app') != 'pdf-analyzer':
                 raise ValueError('Different application')
         except Exception:
             parser.error(f'Cannot start on port {args.port}: {error}. Choose another port with --port.')
+        if health.get('version') != API_VERSION:
+            parser.error(f'An older PDF Analyzer server is running at {url}. Stop the existing Start PDF Analyzer task and start it again to load the updated app.')
         print(f'PDF Analyzer is already running at {url}', flush=True)
         if args.open:
             import webbrowser
             webbrowser.open(url)
         raise SystemExit(0)
+    load_jobs()
     print(f'PDF Analyzer running at {url}', flush=True)
     if args.open:
         import webbrowser

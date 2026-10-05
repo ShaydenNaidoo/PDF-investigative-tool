@@ -264,10 +264,27 @@ class LabTests(unittest.TestCase):
                 self.assertEqual(filtered['counts']['sourceRows'], 122)
                 self.assertEqual(self.request(url+'&group=invalid')[0], 400)
                 self.assertEqual(self.request(url+'&documentColumn=missing')[0], 400)
+                status, invalid_column = self.request(url+'&documentColumn=prefix')
+                self.assertEqual(status, 400)
+                self.assertIn('Choose document', invalid_column['error'])
                 self.assertEqual(self.request(url+'&tool=unknown')[0], 400)
                 self.assertEqual(self.request('/api/jobs/'+identifier+'/summary?name=../results.tsv')[0], 404)
             finally:
                 server.JOBS.pop(identifier)
+
+    def test_health_identifies_summary_support_and_unknown_run_views_fail(self):
+        status, health = self.request('/api/health')
+        self.assertEqual(status, 200)
+        self.assertEqual(health['version'], 3)
+        self.assertIn('result-summaries', health['capabilities'])
+        identifier = 'unknown-view-fixture'
+        server.JOBS[identifier] = {'id': identifier, 'directory': str(self.obs)}
+        try:
+            status, data = self.request('/api/jobs/'+identifier+'/unsupported-view')
+            self.assertEqual(status, 404)
+            self.assertEqual(data['error'], 'Run view not found')
+        finally:
+            server.JOBS.pop(identifier)
 
     def test_summary_cache_refreshes_when_results_or_exemplars_change(self):
         with tempfile.TemporaryDirectory() as directory:
