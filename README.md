@@ -2,6 +2,10 @@
 
 A local GUI for COS 721 PDF toolmark investigations, with a Vice City inspired synthwave interface, neon effects, script editing, live investigation output, searchable evidence tables, and CSV exports.
 
+Use **Script studio → Investigation results → Generate summary** to summarize a full saved result table across exemplar tools. Compare row counts, distinct PDFs and observed coverage in a table and interactive bar chart; export the summary as CSV or the chart as SVG. See [Summarize a large investigation](pdf-analyzer/README.md#summarize-a-large-investigation).
+
+Click a PDF to use **Strings & tags** for searchable file strings, decoded dictionaries, exact PDF tags, page text, and stream previews. **Metadata** shows document properties, custom Info fields, trailer identifiers, and XMP, with JSON and CSV exports. See [Look inside a PDF](pdf-analyzer/README.md#look-inside-a-pdf) for a walkthrough.
+
 ![PDF Analyzer dashboard](pdf-analyzer/preview-desktop.png)
 
 ## Start the app
@@ -56,4 +60,4 @@ The script guide references `assign2.pdf`; add your assignment brief locally if 
 python3 -m unittest discover -s pdf-analyzer -v
 ```
 
-The tests use an isolated fixture dataset and check original references, resource scopes, filtering and exports, script execution, cancellation, persistence, and result isolation.
+The fourteen tests use an isolated fixture dataset and check original references, resource scopes, filtering and exports, script execution, cancellation, persistence, result isolation, strings and compressed content, custom metadata/XMP, preservation of the original PDF, and full-table exemplar summaries.

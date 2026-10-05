@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Local PDF Analyzer API and asynchronous assignment script runner."""
 import argparse
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, OrderedDict
 import csv
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -21,6 +21,8 @@ import urllib.parse
 import uuid
 
 import lab
+import inspection
+import summaries
 
 ROOT, OBS, DATASET = lab.ROOT, lab.OBS, lab.DATASET
 STATIC = Path(__file__).resolve().parent
@@ -30,6 +32,8 @@ RUNS = OBS / 'gui-runs'
 TOKEN = secrets.token_urlsafe(32)
 LOCK = threading.RLock()
 JOBS, PROCESSES, CACHE = {}, {}, {}
+VIEW_CACHE = OrderedDict()
+SUMMARY_CACHE = OrderedDict()
 CATALOG = {
     'part1_resources.sh': ('Extract resource marks', 'Scan the full observation set with your Bash + qpdf extraction script.', 'none'),
     'test_part1.sh': ('Test one PDF', 'Run your supplied extraction test. Its output is kept separate from the full dataset.', 'document'),
@@ -129,6 +133,52 @@ def evidence():
                 'summary': summary, 'matrix': matrix, 'tools': tools, 'index': index, 'marksets': marksets}
         CACHE.update(signature=signature, data=data)
         return data
+
+
+def inspection_cached(path, kind, factory, minimum=4):
+    stat = path.stat()
+    key = (str(path), stat.st_mtime_ns, stat.st_size, kind, minimum)
+    with LOCK:
+        if key in VIEW_CACHE:
+            VIEW_CACHE.move_to_end(key)
+            return VIEW_CACHE[key]
+    result = factory()
+    with LOCK:
+        VIEW_CACHE[key] = result
+        VIEW_CACHE.move_to_end(key)
+        while len(VIEW_CACHE) > 8:
+            VIEW_CACHE.popitem(last=False)
+    return result
+
+
+def result_summary(path, query):
+    toolpaths = [p for p in sorted((OBS / 'tools').glob('pr*')) if p.is_file()]
+    producer_path = OBS / 'producer.txt'
+    inputs = [path, *toolpaths, producer_path]
+    signature = tuple((str(p), p.stat().st_mtime_ns, p.stat().st_size) for p in inputs if p.is_file())
+    options = (query.get('documentColumn', [''])[0], tuple(query.get('group', [])),
+               query.get('q', [''])[0], query.get('type', [''])[0], query.get('tool', [''])[0])
+    key = (signature, options)
+    with LOCK:
+        if key in SUMMARY_CACHE:
+            SUMMARY_CACHE.move_to_end(key)
+            return SUMMARY_CACHE[key]
+    toolsets = {p.name: set(lab.lines(p)) for p in toolpaths}
+    producers = {}
+    for line in read_text(producer_path).splitlines():
+        match = re.search(r'\{Producer:\s*(.*?)\}', line)
+        if match and line.strip():
+            producers[line.split()[0]] = match.group(1)
+    labels = {}
+    for name, ids in toolsets.items():
+        names = Counter(producers[d] for d in ids if producers.get(d))
+        labels[name] = names.most_common(1)[0][0] if names else name
+    result = summaries.summarize(path, toolsets, labels, *options)
+    with LOCK:
+        SUMMARY_CACHE[key] = result
+        while len(SUMMARY_CACHE) > 8:
+            SUMMARY_CACHE.popitem(last=False)
+    return result
 
 
 def dashboard():
@@ -368,10 +418,22 @@ class Handler(BaseHTTPRequestHandler):
                 if not job:
                     return self.json({'error': 'Run not found'}, 404)
                 directory = Path(job['directory'])
-                if len(parts) > 4 and parts[4] == 'table':
+                if len(parts) > 4 and parts[4] in ('table', 'summary'):
                     name = query.get('name', ['results.tsv'])[0]
                     if name not in [t['name'] for t in job['tables']]:
                         return self.json({'error': 'Result table not found'}, 404)
+                    if parts[4] == 'summary':
+                        summary = result_summary(directory / name, query)
+                        if query.get('export', [''])[0] == 'csv':
+                            group_columns = ['group_' + g for g in summary['groups']]
+                            columns = ['tool', 'producer', *group_columns, 'rows', 'documents', 'exemplars', 'represented', 'coverage']
+                            rows = [{**r, **dict(zip(group_columns, r['values'])), 'coverage': r['coverage'] if r['coverage'] is not None else ''} for r in summary['rows']]
+                            return self.export(columns, rows, f'{job["id"]}-{Path(name).stem}-summary.csv')
+                        offset = max(0, int(query.get('offset', ['0'])[0]))
+                        limit = max(1, min(100, int(query.get('limit', ['50'])[0])))
+                        return self.json({**summary, 'rows': summary['rows'][offset:offset + limit],
+                                          'total': len(summary['rows']), 'offset': offset, 'limit': limit,
+                                          'source': name, 'job': job['id']})
                     headers, rows = read_table(directory / name)
                     if query.get('export'):
                         return self.export(headers, filtered(rows, query), f'{job["id"]}-{Path(name).stem}.csv')
@@ -390,14 +452,50 @@ class Handler(BaseHTTPRequestHandler):
                 action = parts[4] if len(parts) > 4 else ''
                 if action == 'pdf':
                     return self.body(pdf.read_bytes(), 'application/pdf')
+                if action == 'strings':
+                    mode = query.get('mode', ['raw'])[0]
+                    minimum = int(query.get('minimum', ['4'])[0])
+                    index = inspection_cached(pdf, mode, lambda: inspection.strings_index(pdf, mode, minimum), minimum)
+                    needle = query.get('q', [''])[0]
+                    tag = query.get('tag', [''])[0]
+                    matches = inspection.filtered_strings(index, needle, tag, query.get('case', ['0'])[0] == '1')
+                    export = query.get('export', [''])[0]
+                    if export == 'csv':
+                        return self.export(['location', 'reference', 'kind', 'text'], matches, document + '-' + mode + '-strings.csv')
+                    if export == 'txt':
+                        body = '\n\n'.join(f'[{row["location"]}]\n{row["text"]}' for row in matches)
+                        return self.body(body.encode('utf-8'), 'text/plain; charset=utf-8', filename=document + '-' + mode + '-strings.txt')
+                    offset = max(0, int(query.get('offset', ['0'])[0]))
+                    limit = max(1, min(50, int(query.get('limit', ['20'])[0])))
+                    page = []
+                    for row in matches[offset:offset + limit]:
+                        position = row['text'].find(needle) if query.get('case', ['0'])[0] == '1' else row['text'].casefold().find(needle.casefold())
+                        preview_start = max(0, position - 1000) if position >= 8000 else 0
+                        page.append({**row, 'text': row['text'][preview_start:preview_start + 8000],
+                                     'previewTruncated': len(row['text']) > 8000, 'previewOffset': preview_start})
+                    return self.json({'rows': page, 'total': len(matches), 'indexed': len(index['rows']),
+                                      'offset': offset, 'limit': limit, 'tags': index['tags'], 'source': index['source'],
+                                      'truncated': index['truncated'], 'indexLimit': index['indexLimit'], 'warning': index['warning']})
+                if action == 'metadata':
+                    detail = inspection_cached(pdf, 'metadata', lambda: inspection.full_metadata(document, pdf))
+                    export = query.get('export', [''])[0]
+                    if export == 'json':
+                        return self.body(json.dumps(detail, ensure_ascii=False, indent=2).encode('utf-8'),
+                                         'application/json; charset=utf-8', filename=document + '-metadata.json')
+                    if export == 'csv':
+                        rows = [{'section': 'pdfinfo', 'field': key, 'value': value} for key, value in detail['pdfinfo'].items() if key != 'document']
+                        rows += [{'section': section, **row} for section in ('info', 'trailer') for row in detail[section]]
+                        return self.export(['section', 'field', 'value'], rows, document + '-metadata.csv')
+                    return self.json(detail)
                 if action == 'object':
                     ref = query.get('ref', [''])[0]
-                    if not re.fullmatch(r'\d+(?:,\d+)?', ref):
-                        raise ValueError('Select a valid original object reference')
-                    result = subprocess.run(['qpdf', '--show-object=' + ref, str(pdf)], capture_output=True, text=True, timeout=30)
-                    if result.returncode not in (0, 3):
-                        raise ValueError(result.stderr.strip() or 'Object inspection failed')
-                    return self.json({'text': result.stdout, 'warning': result.stderr})
+                    detail = inspection.object_detail(pdf, ref, decoded=query.get('decoded', ['0'])[0] == '1')
+                    if query.get('export', [''])[0] == 'txt':
+                        return self.body(detail['text'].encode('utf-8'), 'text/plain; charset=utf-8',
+                                         filename=f'{document}-object-{ref.replace(",", "-")}.txt')
+                    return self.json(detail)
+                if action:
+                    return self.json({'error': 'Document view not found'}, 404)
                 cache_key = ('inspect', document, pdf.stat().st_mtime_ns)
                 with LOCK:
                     detail = CACHE.get(cache_key)

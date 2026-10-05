@@ -8,30 +8,38 @@ import tempfile
 import threading
 import time
 import unittest
+import zlib
+import subprocess
 from unittest.mock import patch
 
 import lab
+import inspection
 import server
+import summaries
 
 
 def make_pdf(path):
     # Two pages reuse /F3 but refer to different original font objects.
     objects = [
-        '<< /Type /Catalog /Pages 2 0 R >>',
+        '<< /Type /Catalog /Pages 2 0 R /Metadata 10 0 R >>',
         '<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>',
-        '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources 8 0 R >>',
+        '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources 8 0 R /Contents 11 0 R >>',
         '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << /Font << /F3 7 0 R /F5 6 0 R >> >> >>',
-        '<< /Producer (Fixture producer) /Creator (Fixture creator) >>',
+        '<< /Producer (Fixture producer) /Creator (Fixture creator) /CustomEvidence (Custom metadata clue) >>',
         '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
         '<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>',
         '<< /Font 9 0 R >>',
         '<< /F3 6 0 R >>',
     ]
+    xmp = zlib.compress(b'<x:xmpmeta xmlns:x="adobe:ns:meta/"><evidence>Hidden XMP clue</evidence></x:xmpmeta>')
+    content = zlib.compress(b'BT /F3 12 Tf 10 50 Td (Compressed page clue) Tj ET')
+    objects += [b'<< /Type /Metadata /Subtype /XML /Filter /FlateDecode /Length ' + str(len(xmp)).encode() + b' >>\nstream\n' + xmp + b'\nendstream',
+                b'<< /Filter /FlateDecode /Length ' + str(len(content)).encode() + b' >>\nstream\n' + content + b'\nendstream']
     body = b'%PDF-1.4\n'
     offsets = [0]
     for i, obj in enumerate(objects, 1):
         offsets.append(len(body))
-        body += f'{i} 0 obj\n{obj}\nendobj\n'.encode()
+        body += f'{i} 0 obj\n'.encode() + (obj if isinstance(obj, bytes) else obj.encode()) + b'\nendobj\n'
     xref = len(body)
     body += f'xref\n0 {len(offsets)}\n0000000000 65535 f \n'.encode()
     body += ''.join(f'{offset:010} 00000 n \n' for offset in offsets[1:]).encode()
@@ -65,6 +73,8 @@ class LabTests(unittest.TestCase):
         server.SCRIPTS = cls.obs / 'gui-scripts'
         server.RUNS = cls.obs / 'gui-runs'
         server.CACHE.clear()
+        server.VIEW_CACHE.clear()
+        server.SUMMARY_CACHE.clear()
         server.JOBS.clear()
         cls.http = server.ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
         cls.thread = threading.Thread(target=cls.http.serve_forever, daemon=True)
@@ -79,6 +89,8 @@ class LabTests(unittest.TestCase):
             setattr(server, name, value)
         lab.OBS, lab.DATASET = server.OBS, server.DATASET
         server.CACHE.clear()
+        server.VIEW_CACHE.clear()
+        server.SUMMARY_CACHE.clear()
         server.JOBS.clear()
         cls.tmp.cleanup()
 
@@ -130,6 +142,152 @@ class LabTests(unittest.TestCase):
         self.assertIn(b'DEMO2', output)
         self.assertNotIn(b'DEMO1', output)
         self.assertEqual(self.request('/api/documents/DEMO2')[0], 404)
+
+    def test_strings_offsets_search_tags_paging_and_exports(self):
+        status, data = self.request('/api/documents/DEMO1/strings?mode=raw&q=Fixture&limit=1')
+        self.assertEqual(status, 200)
+        self.assertEqual(len(data['rows']), 1)
+        self.assertGreaterEqual(data['total'], 1)
+        original = (self.dataset / 'DEMO1-fixture.pdf').read_bytes()
+        row = data['rows'][0]
+        self.assertTrue(original[row['offset']:].startswith(row['text'].encode('ascii')))
+        _, case_sensitive = self.request('/api/documents/DEMO1/strings?mode=raw&q=fixture&case=1')
+        self.assertEqual(case_sensitive['total'], 0)
+        _, structural = self.request('/api/documents/DEMO1/strings?mode=objects&tag=%2FF3')
+        self.assertEqual(structural['total'], 2)
+        self.assertTrue(all('/F3' in r['tags'] for r in structural['rows']))
+        self.assertIn('/Resources', [t['tag'] for t in structural['tags']])
+        _, export = self.request('/api/documents/DEMO1/strings?mode=objects&tag=%2FF3&export=txt')
+        self.assertIn(b'6 0 R', export)
+        self.assertIn(b'7 0 R', export)
+        _, csv = self.request('/api/documents/DEMO1/strings?mode=raw&q=Fixture&export=csv')
+        self.assertIn(b'location,reference,kind,text', csv)
+        self.assertEqual(self.request('/api/documents/DEMO1/strings?minimum=1')[0], 400)
+        self.assertEqual(self.request('/api/documents/DEMO1/strings?mode=invalid')[0], 400)
+
+    def test_compressed_content_and_original_stream_preview(self):
+        _, raw = self.request('/api/documents/DEMO1/strings?mode=raw&q=Compressed')
+        self.assertEqual(raw['total'], 0)
+        _, text = self.request('/api/documents/DEMO1/strings?mode=text&q=Compressed')
+        self.assertEqual(text['total'], 1)
+        self.assertEqual(text['rows'][0]['location'], 'Page 1')
+        _, decoded = self.request('/api/documents/DEMO1/object?ref=11,0&decoded=1')
+        self.assertTrue(decoded['stream'])
+        self.assertIn('Compressed page clue', decoded['text'])
+        self.assertEqual(self.request('/api/documents/DEMO1/object?ref=6,0&decoded=1')[0], 400)
+        self.assertEqual(self.request('/api/documents/DEMO1/object?ref=../11&decoded=1')[0], 400)
+        _, exported = self.request('/api/documents/DEMO1/object?ref=11,0&decoded=1&export=txt')
+        self.assertIn(b'Compressed page clue', exported)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'compressed.pdf'
+            subprocess.run(['qpdf', '--object-streams=generate', str(self.dataset / 'DEMO1-fixture.pdf'), str(path)], check=True, capture_output=True)
+            raw_names = inspection.strings_index(path, 'raw')
+            objects = inspection.strings_index(path, 'objects')
+            self.assertFalse(inspection.filtered_strings(raw_names, '/BaseFont'))
+            self.assertTrue(inspection.filtered_strings(objects, tag='/BaseFont'))
+
+    def test_full_metadata_custom_fields_xmp_and_original_ids(self):
+        status, data = self.request('/api/documents/DEMO1/metadata')
+        self.assertEqual(status, 200)
+        self.assertEqual(data['pdfinfo']['Producer'], 'Fixture producer')
+        self.assertIn({'field':'/CustomEvidence', 'value':'Custom metadata clue'}, data['info'])
+        self.assertEqual(data['infoReference'], '5 0 R')
+        self.assertEqual(data['xmpReference'], '10 0 R')
+        self.assertIn('Hidden XMP clue', data['xmp'])
+        self.assertTrue(any(row['field']=='/Root' for row in data['trailer']))
+        _, exported = self.request('/api/documents/DEMO1/metadata?export=json')
+        self.assertIn('Hidden XMP clue', exported['xmp'])
+        _, csv = self.request('/api/documents/DEMO1/metadata?export=csv')
+        self.assertIn(b'CustomEvidence', csv)
+        self.assertEqual(self.request('/api/documents/DEMO1/unknown-view')[0], 404)
+
+    def test_index_limits_are_explicit_and_do_not_change_pdf(self):
+        path = self.dataset / 'DEMO1-fixture.pdf'
+        before = hashlib.sha256(path.read_bytes()).hexdigest()
+        with patch.object(inspection, 'MAX_INDEX_ROWS', 2):
+            data = inspection.strings_index(path, 'raw')
+        self.assertTrue(data['truncated'])
+        self.assertEqual(len(data['rows']), 2)
+        inspection.full_metadata('DEMO1', path)
+        inspection.object_detail(path, '11,0', decoded=True)
+        self.assertEqual(before, hashlib.sha256(path.read_bytes()).hexdigest())
+
+    def test_summary_deduplicates_pdfs_and_reports_membership_overlap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'results.tsv'
+            path.write_text('document\tresource_type\tprefix\nA\tFont\t/F\nA\tFont\t/F\nA\tXObject\t/Im\nB\tFont\t/TT\nC\tFont\t/F\n\tFont\t/F\n')
+            toolsets = {'pr01': {'A', 'D'}, 'pr02': {'A', 'B'}, 'pr03': {'E'}}
+            result = summaries.summarize(path, toolsets, {}, groups=['resource_type', 'prefix'])
+            overview = {r['tool']: r for r in result['overview']}
+            self.assertEqual(overview['pr01']['rows'], 3)
+            self.assertEqual(overview['pr01']['documents'], 1)
+            self.assertEqual(overview['pr01']['coverage'], 50)
+            self.assertEqual(overview['pr02']['coverage'], 100)
+            self.assertEqual(overview['pr03']['rows'], 0)
+            self.assertEqual(overview['Unassigned']['coverage'], None)
+            self.assertEqual(result['counts']['matchedRows'], 6)
+            self.assertEqual(result['counts']['matchedDocuments'], 3)
+            self.assertEqual(result['counts']['missingDocumentRows'], 1)
+            self.assertEqual(result['counts']['overlapDocuments'], 1)
+            font = next(r for r in result['rows'] if r['tool']=='pr01' and r['values']==['Font','/F'])
+            self.assertEqual((font['rows'], font['documents']), (2, 1))
+            filtered = summaries.summarize(path, toolsets, {}, groups=['prefix'], query='/TT', tool='pr02')
+            self.assertEqual(filtered['counts']['matchedRows'], 1)
+            self.assertEqual(filtered['overview'][0]['represented'], 2)
+            self.assertEqual(filtered['overview'][0]['coverage'], 50)
+            empty = summaries.summarize(path, toolsets, {}, query='no matching result')
+            self.assertEqual(empty['counts']['matchedRows'], 0)
+            self.assertEqual(len(empty['overview']), 3)
+
+    def test_summary_api_covers_all_pages_and_exports_all_groups(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'results.tsv'
+            path.write_text('document\tresource_type\tprefix\n'+('DEMO1\tFont\t/F\n'*120)+'DEMO1\tXObject\t/Im\nDEMO2\tFont\t/TT\n')
+            identifier = 'summary-fixture'
+            server.JOBS[identifier] = {'id': identifier, 'directory': directory, 'tables': [{'name':'results.tsv','rows':122}]}
+            try:
+                url = '/api/jobs/'+identifier+'/summary?name=results.tsv&group=resource_type&group=prefix&limit=1'
+                status, data = self.request(url)
+                self.assertEqual(status, 200)
+                self.assertEqual(data['total'], 3)
+                self.assertEqual(len(data['rows']), 1)
+                self.assertEqual(data['counts']['sourceRows'], 122)
+                self.assertEqual(data['overview'][0]['rows'], 121)
+                self.assertEqual(data['overview'][0]['documents'], 1)
+                _, output = self.request(url+'&export=csv')
+                self.assertIn(b'XObject', output)
+                self.assertIn(b'/TT', output)
+                self.assertIn(b'group_resource_type,group_prefix', output)
+                _, filtered = self.request(url+'&type=Font&q=%2FF&tool=pr01')
+                self.assertEqual(filtered['counts']['matchedRows'], 120)
+                self.assertEqual(filtered['overview'][0]['documents'], 1)
+                self.assertEqual(filtered['counts']['sourceRows'], 122)
+                self.assertEqual(self.request(url+'&group=invalid')[0], 400)
+                self.assertEqual(self.request(url+'&documentColumn=missing')[0], 400)
+                self.assertEqual(self.request(url+'&tool=unknown')[0], 400)
+                self.assertEqual(self.request('/api/jobs/'+identifier+'/summary?name=../results.tsv')[0], 404)
+            finally:
+                server.JOBS.pop(identifier)
+
+    def test_summary_cache_refreshes_when_results_or_exemplars_change(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base/'tools').mkdir()
+            (base/'tools/pr01').write_text('A\nB\n')
+            path = base/'results.tsv'
+            path.write_text('document\tobservation\nA\tfirst\n')
+            with patch.object(server, 'OBS', base):
+                one = server.result_summary(path, {})
+                self.assertEqual(one['overview'][0]['coverage'], 50)
+                path.write_text('document\tobservation\nA\tfirst\nB\tsecond\n')
+                two = server.result_summary(path, {})
+                self.assertEqual(two['overview'][0]['coverage'], 100)
+                (base/'tools/pr01').write_text('A\nB\nC\n')
+                three = server.result_summary(path, {})
+                self.assertEqual(three['overview'][0]['coverage'], 66.67)
+                (base/'totals.tsv').write_text('prefix\tdocuments\n/F\t3\n')
+                with self.assertRaisesRegex(ValueError, 'PDF document IDs'):
+                    server.result_summary(base/'totals.tsv', {})
 
     def test_script_save_syntax_run_table_and_reload(self):
         self.assertEqual(self.request('/api/scripts', {'name':'../escape', 'source':'echo bad'})[0], 400)
