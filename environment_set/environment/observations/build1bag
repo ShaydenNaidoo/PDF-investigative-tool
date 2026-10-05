@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+if [ $# -ne 1 ]; then
+	echo "Usage: build1bag <toolname>, eg build1bag pr01"
+	exit 1
+fi
+if [ ! -f tools/$1 ]; then
+	echo "Error: File tools/$1 does not exist."
+	echo "Usage: build1bag <toolname>, eg build1bag pr01" 
+	exit 1
+fi
+cat `sed "s/^/vectors\//" tools/$1` | sort | uniq -c > bags/$1

@@ -1,0 +1,34 @@
+# Local configuration and credentials
+/.aws/
+/.codex/
+/.agents/
+.env
+.env.*
+!.env.example
+
+# Python and editor caches
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.DS_Store
+
+# Assignment PDFs and dataset archives are supplied separately
+*.pdf
+*.zip
+*.tgz
+*.tar.gz
+/environment_set/master-gdc-gdcdatasets-2020445568-2020445568/
+
+# Generated PDF transformations and investigation results
+/environment_set/environment/pdfwork/
+/environment_set/environment/part1/qdf/
+/environment_set/environment/part1/results/
+/environment_set/environment/observations/part1-results/
+/environment_set/environment/observations/part1-test-results/
+/environment_set/environment/observations/gui-runs/
+/environment_set/environment/observations/gui-notes.json
+
+# Friend's script is outside the app's investigation workflow
+/environment_set/environment/scan_resources.sh

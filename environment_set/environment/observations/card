@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+if [ $# -ne 1 ]; then
+	echo "Usage: card <set> - Determines the cardinality of the stated set."
+	exit 1
+fi
+if [ ! -f $1 ]; then
+	echo "Error: The set '$1' does not exist."
+	echo "Usage: card <set> - Determines the cardinality of the stated set."
+	exit 1
+fi
+wc -l $1 | awk '{print $1}'

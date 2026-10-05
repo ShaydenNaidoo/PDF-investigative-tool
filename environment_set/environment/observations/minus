@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+if [ $# -ne 2 ]; then 
+	echo "Usage: minus <set1> <set2> - Calculates the difference between two sets."
+	exit 1
+fi
+if [ ! -f $1 ]; then
+	echo "Error: The set '$1' does not exist."
+	echo "Usage: minus <set1> <set2> - Calculates the difference between two sets."
+	exit 1
+fi
+if [ ! -f $2 ]; then
+	echo "Error: The set '$2' does not exist."
+	echo "Usage: minus <set1> <set2> - Calculates the difference between two sets."
+	exit 1	
+fi
+./section $1 $2 | cat - $1 | sort | uniq -c | grep "^ *1" | sed "s/^ *1 //"

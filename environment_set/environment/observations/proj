@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+if [ $# -ne 1 ]; then
+	echo "Usage: proj <set> - Indicates the producers associated with the set."
+	exit 1
+fi
+if [ ! -f $1 ]; then
+	echo "Error: The set '$1' does not exist."
+	echo "Usage: proj <set> - Indicates the producers associated with the set."
+	exit 1
+fi
+for i in `cat $1`; do grep -h "^$i" producer.txt ; done

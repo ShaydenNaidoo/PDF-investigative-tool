@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101020"><title>PDF Analyzer · Vice Lab</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%23ff65ae'/%3E%3Ctext x='7' y='28' font-family='sans-serif' font-weight='bold' font-size='23' fill='%23101020'%3EPA%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<svg class="icon-defs" xmlns="http://www.w3.org/2000/svg"><defs>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H5v18h14V8zm0 0v5h5M8 12h8M8 16h5"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="m8 6-6 6 6 6m8-12 6 6-6 6M14 3l-4 18"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 10 5-10 5L2 8zm-10 10 10 5 10-5M2 18l10 5 10-5"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 3h16v18H4zM8 3v18M11 8h6M11 12h6"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="7"/><path d="m15 15 6 6"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M2 12h5l3-8 4 16 3-8h5"/></symbol>
+</defs></svg>
+<div class="shell">
+  <aside class="sidebar">
+    <a href="#overview" class="brand" aria-label="PDF Analyzer home"><span class="brand-icon">PA<span>✦</span></span><div><b>PDF ANALYZER</b><small>VICE LAB / COS 721</small></div></a>
+    <div class="nav-label">YOUR WORKBENCH</div>
+    <nav aria-label="Lab views">
+      <button class="nav-item active" data-view="overview"><svg><use href="#i-grid"/></svg>Dashboard<span class="nav-index">01</span></button>
+      <button class="nav-item" data-view="evidence"><svg><use href="#i-file"/></svg>Evidence explorer<span class="nav-index">02</span></button>
+      <button class="nav-item" data-view="comparison"><svg><use href="#i-layers"/></svg>Tool comparison<span class="nav-index">03</span></button>
+      <button class="nav-item" data-view="scripts"><svg><use href="#i-code"/></svg>Script studio<span class="nav-index">04</span></button>
+      <button class="nav-item" data-view="notebook"><svg><use href="#i-book"/></svg>Field notebook<span class="nav-index">05</span></button>
+    </nav>
+    <div class="sidebar-case"><span class="label">ACTIVE CASE</span><b>Resource fingerprints</b><p>Prefixes. Numbering. Traces of editing.</p><span class="tag">ASSIGNMENT 02</span></div>
+    <div class="sidebar-bottom"><div class="connection"><i id="connection-dot"></i><span id="connection-text">Connecting to lab…</span></div><small>Local workspace · your evidence</small></div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar"><div class="breadcrumb">WORKBENCH <span>/</span> <b id="page-title">DASHBOARD</b></div><div class="top-actions"><label class="global-search"><svg><use href="#i-search"/></svg><input id="global-search" aria-label="Find documents" placeholder="Find a document…"><kbd>/</kbd></label><button id="refresh" class="icon-button" title="Refresh evidence" aria-label="Refresh evidence">↻</button><span class="avatar">S</span></div></header>
+    <main>
+      <div id="offline" class="alert hidden" role="alert"></div>
+      <section class="view active" id="overview">
+        <div class="hero"><img src="/scene.svg" alt="" class="hero-art"><div class="hero-noise"></div><div class="hero-sparks" aria-hidden="true"><i style="--x:42%;--delay:-0.0s"></i><i style="--x:47%;--delay:-1.3s"></i><i style="--x:52%;--delay:-2.6s"></i><i style="--x:57%;--delay:-3.9000000000000004s"></i><i style="--x:62%;--delay:-5.2s"></i><i style="--x:67%;--delay:-6.5s"></i><i style="--x:72%;--delay:-7.800000000000001s"></i><i style="--x:77%;--delay:-9.1s"></i><i style="--x:82%;--delay:-10.4s"></i><i style="--x:87%;--delay:-11.700000000000001s"></i><i style="--x:92%;--delay:-13.0s"></i></div><div class="hero-content"><div class="hero-kicker"><span class="live-dot"></span> PDF FORENSICS / VICE LAB</div><h1>Every PDF<br>leaves a <em>trace.</em></h1><p>Your investigation. A clearer view.<br>Explore the fingerprints behind the file.</p><button class="primary" data-view="evidence">Explore evidence <svg><use href="#i-arrow"/></svg></button></div><div class="hero-stamp">EST. 2026<span>OBSERVE · TEST · DISCOVER</span></div><span class="hero-coordinate">25°46′ N &nbsp; 80°11′ W / VICE LAB</span></div>
+        <div class="section-line"><div><span class="label">CASE OVERVIEW</span><h2>The evidence, at a glance.</h2></div><span id="updated-at" class="muted small">Reading workspace…</span></div>
+        <div class="metrics">
+          <article class="metric"><span><svg><use href="#i-file"/></svg>DOCUMENTS</span><b id="count-documents">—</b><small id="dataset-count">Observation set</small><div class="metric-line cyan"></div></article>
+          <article class="metric"><span><svg><use href="#i-layers"/></svg>RESOURCE ENTRIES</span><b id="count-resources">—</b><small id="scan-count">Extracted resource mappings</small><div class="metric-line pink"></div></article>
+          <article class="metric"><span><svg><use href="#i-code"/></svg>UNIQUE PREFIXES</span><b id="count-prefixes">—</b><small>Resource naming signatures</small><div class="metric-line purple"></div></article>
+          <article class="metric"><span><svg><use href="#i-pulse"/></svg>TOOLMARK SETS</span><b id="count-marks">—</b><small>Existing observation marks</small><div class="metric-line orange"></div></article>
+        </div>
+        <div class="overview-grid">
+          <article class="panel"><div class="panel-head"><div><span class="label">SIGNATURE FREQUENCY</span><h3>The most common prefixes</h3></div><span class="tag">BY DOCUMENT</span></div><div id="prefix-bars" class="prefix-bars"></div><div class="panel-foot">Click a prefix to follow its evidence <span>↗</span></div></article>
+          <article class="panel workflow"><div class="panel-head"><div><span class="label">NEXT MOVE</span><h3>Make the evidence talk.</h3></div><span class="mini-sun">✦</span></div><button class="workflow-item" data-view="evidence"><span class="step-number">01</span><div><b>Inspect a document</b><small>See resources, metadata and original objects.</small></div><span>↗</span></button><button class="workflow-item" data-view="comparison"><span class="step-number">02</span><div><b>Compare tool signatures</b><small>Map prefixes across the 15 exemplar tools.</small></div><span>↗</span></button><button class="workflow-item" data-view="scripts"><span class="step-number">03</span><div><b>Run an investigation</b><small>Build a script. Watch it run. Export the table.</small></div><span>↗</span></button><div class="tool-health" id="tool-health"></div></article>
+        </div>
+        <article class="panel"><div class="panel-head"><div><span class="label">ON THE RADAR</span><h3>Documents to investigate</h3></div><button class="text-button" data-view="evidence">All documents <span>↗</span></button></div><div id="radar-table"></div></article>
+      </section>
+      <section class="view" id="evidence">
+        <div class="section-line"><div><span class="label">FOLLOW THE FINGERPRINT</span><h2>Evidence explorer</h2><p class="muted">Open a PDF to inspect its metadata, local resource scopes and original object references.</p></div><button id="export-evidence" class="secondary"><svg><use href="#i-download"/></svg>Export CSV</button></div>
+        <article class="panel"><div class="toolbar"><div class="segmented"><button class="active" data-evidence-mode="documents">Documents</button><button data-evidence-mode="resources">Resource marks</button></div><label class="search"><svg><use href="#i-search"/></svg><input id="evidence-search" placeholder="Search IDs, producers or marks…" aria-label="Search evidence"></label><select id="evidence-tool" aria-label="Filter exemplar tool"><option value="">All tools</option></select><select id="evidence-type" aria-label="Filter resource type" class="hidden"><option value="">All resource types</option></select></div><div id="evidence-context" class="table-caption"></div><div id="evidence-table"></div><div id="evidence-pagination" class="pagination"></div></article>
+      </section>
+      <section class="view" id="comparison">
+        <div class="section-line"><div><span class="label">ASSIGNMENT / PART 01</span><h2>Tool signature comparison</h2><p class="muted">Observed prefixes by resource type. Counts show distinct matching exemplars.</p></div><button id="export-matrix" class="secondary"><svg><use href="#i-download"/></svg>Export matrix</button></div>
+        <div class="comparison-note"><span class="tag pink">READ THE EVIDENCE</span><p>A question mark means no extracted example. Low counts are flagged as sparse. Resource use is conditional; coverage alone does not establish a naming rule. <b>XObject may be an image or form: inspect the document to confirm.</b></p></div>
+        <article class="panel"><div class="toolbar"><span class="label">15 EXEMPLAR TOOLS</span><label class="field-inline">Sparse when fewer than <input id="sparse-threshold" type="number" value="3" min="1" max="50" aria-label="Sparse evidence threshold"> documents</label></div><div id="matrix-table"></div></article>
+      </section>
+      <section class="view" id="scripts">
+        <div class="section-line"><div><span class="label">WRITE · RUN · INVESTIGATE</span><h2>Script studio</h2><p class="muted">Your assignment tools, a script editor, and results you can read.</p></div><span class="tag"><i class="live-dot"></i> OBSERVATIONS WORKSPACE</span></div>
+        <div class="studio-grid">
+          <article class="panel studio-editor"><div class="toolbar"><div class="segmented"><button class="active" data-studio-mode="library">Script library</button><button data-studio-mode="editor">Build a script</button></div></div>
+            <div id="library-pane" class="studio-pane"><label class="field">Investigation script<select id="script-select"></select></label><p id="script-description" class="muted description"></p><label class="field" id="arguments-field">Arguments<input id="script-arguments" placeholder=""></label><button id="edit-script" class="text-button">Open a copy in the editor ↗</button><div class="working-directory"><span class="label">RUNS INSIDE</span><code>environment_set/environment/observations</code></div></div>
+            <div id="editor-pane" class="studio-pane hidden"><div class="builder-form"><label class="field">Investigation<select id="template-mode"><option value="resources">Resource names & original references</option><option value="numbering">Numbering & gaps by local scope</option><option value="metadata">Producer & creator metadata</option><option value="marks">Existing toolmarks</option><option value="blank">Blank Bash script</option></select></label><div class="two-fields"><label class="field">Exemplar tool<select id="builder-tool"><option value="">All documents</option></select></label><label class="field">Document IDs<input id="builder-documents" value="22ZOC" placeholder="22ZOC, GGGXC"></label></div><div class="two-fields"><label class="field">Resource type<select id="builder-type"><option value="">Any resource</option></select></label><label class="field">Exact prefix<input id="builder-prefix" placeholder="e.g. /TT"></label></div><button id="generate-script" class="secondary">Generate script</button></div><label class="field script-name">Script name<input id="script-name" value="resource-investigation" maxlength="64" placeholder="my-investigation"></label><div class="editor-heading"><span>BASH</span><span id="editor-lines">1 LINE</span></div><textarea id="script-source" spellcheck="false" aria-label="Bash script editor"></textarea><div class="editor-note">Custom scripts run with your local account permissions. Available paths: <code>$PDF_OBSERVATIONS_DIR</code>, <code>$PDF_DATASET_DIR</code>, <code>$PDF_RUN_DIR</code>.</div><button id="save-script" class="secondary">Save script</button><span id="save-status" class="muted small" role="status"></span></div>
+            <div class="run-bar"><button id="run-script" class="primary">▶ Run investigation</button><button id="cancel-run" class="danger hidden">■ Stop</button><span id="run-status" role="status">Ready when you are.</span></div>
+          </article>
+          <article class="panel output-panel"><div class="panel-head"><div><span class="label">INVESTIGATION FEED</span><h3>Live output</h3></div><span id="run-badge" class="tag">IDLE</span></div><div class="run-meta" id="run-meta">Your output and errors appear here as the script runs.</div><pre id="console" tabindex="0">// The lab is ready.\n// Choose an investigation to start.</pre><div class="output-foot"><span id="output-hint">Run snapshots, logs and tables are saved in observations/gui-runs.</span><button id="jump-results" class="text-button" disabled>View results ↓</button></div></article>
+        </div>
+        <article class="panel result-panel" id="investigation-results"><div class="panel-head"><div><span class="label">STRUCTURED EVIDENCE</span><h3>Investigation results</h3></div><div class="result-actions"><select id="result-select" aria-label="Result table"></select><button id="export-results" class="secondary" disabled><svg><use href="#i-download"/></svg>Export CSV</button></div></div><label class="search result-search"><svg><use href="#i-search"/></svg><input id="result-search" placeholder="Filter run results…" aria-label="Filter investigation results"></label><div id="result-table"><div class="empty">Run a script to create a results table.<small>Templates produce TSV automatically. Custom scripts can print TSV or write .tsv files to $PDF_RUN_DIR.</small></div></div><div id="result-pagination" class="pagination"></div></article>
+        <article class="panel history-panel"><div class="panel-head"><div><span class="label">CHAIN OF INVESTIGATION</span><h3>Run history</h3></div><span class="muted small">Select a run to reopen its evidence</span></div><div id="history-table"></div></article>
+      </section>
+      <section class="view" id="notebook"><div class="section-line"><div><span class="label">YOUR REASONING, YOUR RECORD</span><h2>Field notebook</h2><p class="muted">Keep hypotheses, counterexamples and references close to your evidence.</p></div><button id="export-notes" class="secondary"><svg><use href="#i-download"/></svg>Export notes</button></div><article class="panel notebook-panel"><label class="field">Investigation notes<textarea id="notebook-text" placeholder="Question / hypothesis&#10;Evidence: document IDs, resource names and original object references&#10;Test performed&#10;Observation&#10;Limitations and counterexamples"></textarea></label><button id="save-notes" class="primary">Save notes</button><span id="notes-status" class="muted" role="status"></span></article></section>
+      <footer><span>PDF ANALYZER <b>✦</b> VICE LAB</span><span>COS 721 / ASSIGNMENT 02 · LOCAL WORKSPACE</span></footer>
+    </main>
+  </div>
+</div>
+<dialog id="inspector"><div class="inspector-head"><div><span class="label">DOCUMENT DOSSIER</span><h2 id="inspect-title">—</h2></div><div class="inspector-actions"><a id="open-pdf" class="secondary" target="_blank" rel="noopener">Open PDF ↗</a><button id="close-inspector" class="icon-button" aria-label="Close inspector">✕</button></div></div><div id="inspect-body"></div></dialog>
+<div id="toast" role="status" class="toast hidden"></div>
+<script src="/app.js"></script>
+</body></html>

@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+if [ $# -ne 1 ]; then
+	echo "Usage: build1class <toolname>, eg build1class pr01"
+	exit 1
+fi
+if [ ! -f tools/$1 ]; then
+	echo "Error: File tools/$1 does not exist."
+	echo "Usage: build1class <toolname>, eg build1class pr01"
+	exit 1
+fi
+rm -f classes/$1
+touch classes/$1
+for i in `cat all`; do
+	if [ `./subset fv/$1 vectors/$i` = "yes" ]; then
+		echo $i >> classes/$1
+	fi
+done

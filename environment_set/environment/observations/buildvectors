@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+time for i in `cat all`; do ./build1vector $i ; done

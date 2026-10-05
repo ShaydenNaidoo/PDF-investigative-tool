@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+if [ $# -eq 0 ]; then
+	echo "Usage: munion <set1> ... - Calculates the union of one or more sets."
+	exit 1
+fi
+if [ ! -f $1 ]; then
+	echo "Error: The set '$1' does not exist."
+	echo "Usage: munion <set1> ... - Calculates the union of one or more sets."
+	exit 1
+fi
+if [ $# -eq 1 ]; then
+	cat $1
+elif [ $# -eq 2 ]; then
+	./union $1 $2
+else
+	arghead="$1"
+	argtail=`mktemp .XXXXXXXXXX`
+	shift
+        ./munion "$@" > $argtail
+	./union $arghead $argtail
+	rm -f $argtail
+fi
+
+

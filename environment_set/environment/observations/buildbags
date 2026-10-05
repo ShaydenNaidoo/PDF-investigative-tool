@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+time for i in `ls tools`; do ./build1bag $i ; done

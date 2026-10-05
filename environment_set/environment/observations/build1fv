@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+if [ $# -ne 1 ]; then
+	echo "Usage: build1fv <toolname>, eg build1fv pr01"
+	exit 1
+fi
+if [ ! -f tools/$1 ]; then
+       	echo "Error: File tools/$1 does not exist."
+	echo "Usage: build1fv <toolname>, eg build1fv pr01"
+	exit 1
+fi
+if [ ! -f bags/$1 ]; then
+       	echo "Error: File bags/$1 does not exist."
+	echo "(buildbags or build1bag $1 could construct this file.)"
+	echo "Usage: build1fv <toolname>, eg build1fv pr01"
+	exit 1
+fi
+card=`wc -l tools/$1 | awk '{print $1}'`
+grep "^ * $card " bags/$1 | sed "s/^ *$card //" > fv/$1

@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+#!/usr/bin/env bash
+if [ $# -ne 2 ]; then
+	echo "Usage: subset <set1> <set2> - Returns 'yes' if <set1> is a subset of <set2>; else 'no'."
+	exit 1
+fi
+if [ ! -f $1 ]; then
+	echo "Error: The set '$1' does not exist."
+	echo "Usage: subset <set1> <set2> - Returns 'yes' if <set1> is a subset of <set2>; else 'no'."
+	exit 1
+fi
+if [ ! -f $2 ]; then
+	echo "Error: The set '$2' does not exist."
+	echo "Usage: subset <set1> <set2> - Returns 'yes' if <set1> is a subset of <set2>; else 'no'."
+	exit 1
+fi
+# The logic used is that the intersection between a subset and
+# a *superset* will= always simply be the subset
+numsub=`wc -l $1 | awk '{print $1}'`
+shared=`mktemp .XXXXXXXXXXXX` 
+# Create temporary file ...
+./section $1 $2 > $shared   # ... to store intersection
+numshared=`wc -l $shared | awk '{print $1}'`
+rm -f $shared               # Temp file served its purpose...
+if [ $numsub  = $numshared ]; then #  How many shared elements?
+	echo yes            #         All elements of *subset* shared
+else                        #         else
+	echo no             #         Some elements of *subset* missing
+fi

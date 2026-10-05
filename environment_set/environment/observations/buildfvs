@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+echo "/15 tools to process..."
+time for i in `ls tools/ | sed "s/^tools\///"`; do ./build1fv $i ; done

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+echo -n `ls tools/$1 | wc -l | awk '{print $1}'`
+echo "/15 tools to process..."
+echo -n `ls fv/$1 | wc -l | awk '{print $1}'`
+echo "/15 feature vectors available..."
+time for i in `ls fv/ | sed "s/^tools\///"`; do echo $i...; ./build1class $i ; done

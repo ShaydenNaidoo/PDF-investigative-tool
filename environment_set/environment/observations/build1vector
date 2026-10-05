@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+if [ $# -ne 1 ]; then
+	        echo "Usage: build1vector <document>, eg build1vector ABCDE"
+	        exit 1
+fi
+grep -l $1 marks/* > vectors/$1
+sed -i "s/marks\///" vectors/$1
