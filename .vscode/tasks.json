@@ -2,6 +2,31 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "Start PDF Analyzer (Docker)",
+      "type": "process",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/Start Lab.sh"
+      ],
+      "windows": {
+        "command": "cmd.exe",
+        "args": [
+          "/d",
+          "/c",
+          "${workspaceFolder}\\Start Lab.cmd"
+        ]
+      },
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
       "label": "Start PDF Analyzer",
       "type": "shell",
       "command": "python3",
@@ -22,6 +47,19 @@
         "showReuseMessage": false,
         "clear": false
       }
+    },
+    {
+      "label": "Stop PDF Analyzer (Docker)",
+      "type": "process",
+      "command": "docker",
+      "args": [
+        "compose",
+        "stop"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
     }
   ]
 }

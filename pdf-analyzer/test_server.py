@@ -16,6 +16,10 @@ import lab
 import inspection
 import server
 import summaries
+import lab_setup
+import io
+import os
+import zipfile
 
 
 def make_pdf(path):
@@ -76,6 +80,8 @@ class LabTests(unittest.TestCase):
         server.VIEW_CACHE.clear()
         server.SUMMARY_CACHE.clear()
         server.JOBS.clear()
+        server.IMPORT_STATE.clear()
+        server.IMPORT_STATE['status'] = 'idle'
         cls.http = server.ThreadingHTTPServer(('127.0.0.1', 0), server.Handler)
         cls.thread = threading.Thread(target=cls.http.serve_forever, daemon=True)
         cls.thread.start()
@@ -275,8 +281,9 @@ class LabTests(unittest.TestCase):
     def test_health_identifies_summary_support_and_unknown_run_views_fail(self):
         status, health = self.request('/api/health')
         self.assertEqual(status, 200)
-        self.assertEqual(health['version'], 3)
+        self.assertEqual(health['version'], 4)
         self.assertIn('result-summaries', health['capabilities'])
+        self.assertIn('lab-setup', health['capabilities'])
         identifier = 'unknown-view-fixture'
         server.JOBS[identifier] = {'id': identifier, 'directory': str(self.obs)}
         try:
@@ -285,6 +292,59 @@ class LabTests(unittest.TestCase):
             self.assertEqual(data['error'], 'Run view not found')
         finally:
             server.JOBS.pop(identifier)
+
+    def test_setup_status_and_authenticated_pdf_import_are_persistent(self):
+        original_all = (self.obs/'all').read_bytes()
+        original_hash = hashlib.sha256((self.dataset/'DEMO1-fixture.pdf').read_bytes()).hexdigest()
+        payload = (self.dataset/'DEMO1-fixture.pdf').read_bytes()
+        def upload(name, data, token=True):
+            connection = http.client.HTTPConnection('127.0.0.1', self.http.server_port, timeout=10)
+            headers = {'Content-Type':'application/octet-stream'}
+            if token:
+                headers['X-Lab-Token'] = server.TOKEN
+            connection.request('POST','/api/setup/import?filename='+name, data, headers)
+            response = connection.getresponse()
+            result = json.loads(response.read())
+            status = response.status
+            connection.close()
+            return status, result
+        def wait_import():
+            for _ in range(100):
+                _, data = self.request('/api/setup')
+                if data['import']['status'] in ('completed','failed') and not list((self.obs/'.uploads').glob('*.upload')):
+                    return data
+                time.sleep(.02)
+            self.fail('PDF import did not finish')
+        try:
+            _, setup = self.request('/api/setup')
+            self.assertEqual(setup['dataset']['available'], 1)
+            self.assertEqual(setup['dataset']['missing'], 1)
+            self.assertEqual(upload('NEW01.pdf',payload,False)[0],403)
+            self.assertEqual(upload('code.sh',payload)[0],400)
+            self.assertEqual(upload('empty.pdf',b'')[0],400)
+            server.JOBS['import-blocker'] = {'status':'running'}
+            self.assertEqual(upload('NEW01.pdf',payload)[0],400)
+            server.JOBS.pop('import-blocker')
+            self.assertEqual(upload('NEW01.pdf',payload)[0],202)
+            setup = wait_import()
+            self.assertEqual(setup['import']['status'],'completed')
+            self.assertEqual(setup['import']['imported'],1)
+            self.assertEqual(setup['dataset']['available'],2)
+            self.assertIn('NEW01',lab.lines(self.obs/'all'))
+            self.assertEqual(self.request('/api/documents/NEW01/metadata')[0],200)
+            self.assertEqual(upload('NEW01.pdf',payload)[0],202)
+            self.assertEqual(wait_import()['import']['skipped'],1)
+            self.assertEqual(upload('BAD01.pdf',b'not a PDF')[0],202)
+            self.assertEqual(wait_import()['import']['status'],'failed')
+            self.assertFalse((self.dataset/'BAD01.pdf').exists())
+            self.assertEqual(original_hash,hashlib.sha256((self.dataset/'DEMO1-fixture.pdf').read_bytes()).hexdigest())
+        finally:
+            server.JOBS.pop('import-blocker',None)
+            (self.dataset/'NEW01.pdf').unlink(missing_ok=True)
+            (self.obs/'all').write_bytes(original_all)
+            server.IMPORT_STATE.clear()
+            server.IMPORT_STATE['status']='idle'
+            server.CACHE.clear()
 
     def test_summary_cache_refreshes_when_results_or_exemplars_change(self):
         with tempfile.TemporaryDirectory() as directory:

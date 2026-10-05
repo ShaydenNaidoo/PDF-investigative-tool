@@ -591,6 +591,8 @@ The vector, bag, feature-vector and class scripts are available in **Script libr
 | Original object differs from the old table | Old extraction used QDF numbering | Verify with original resources and the original object inspector |
 | FAILED with some populated tables | An investigation failed after collecting partial evidence | Inspect stderr and any `failures.tsv`; do not treat that run as complete |
 | qpdf warning in stderr | qpdf recovered or reported a PDF issue | Read the warning; the helper accepts qpdf warning exit code 3 and preserves readable evidence |
+| Script exits 1 during a zero-match count | `set -euo pipefail` treats grep's no-match exit as failure | Count intersections with awk, or explicitly handle grep exit 1; use [the corrected Part 1 script](examples/part1-investigation-fixed.sh) |
+| NOT STARTED in Live output | Script name or Bash syntax failed validation | Read the displayed error, correct the name/code, then retry; names accept letters, numbers, underscores and dashes |
 | Another investigation is running | The runner serializes investigations | Wait for it or click **Stop**, then start the next run |
 | CANCELLED or INTERRUPTED | Run was stopped or the server ended | Treat outputs as partial; rerun if complete evidence is required |
 | Timeout | Run exceeded the 30-minute runner limit or a per-document helper timeout | Narrow the scope and run smaller investigations |
@@ -598,6 +600,10 @@ The vector, bag, feature-vector and class scripts are available in **Script libr
 The helper reads qpdf JSON from an original PDF with a per-document timeout of 90 seconds; metadata uses a 30-second timeout. Table files become available when the runner finishes collecting the results. The console displays the tail of very large logs, whereas the complete stdout/stderr files are preserved in the run directory.
 
 A successful exit means the script completed without reporting a handled failure. It does not prove a naming convention. A gap does not prove editing. Resource declaration does not prove actual use. Record these distinctions alongside your observations.
+
+The corrected [Part 1 resource investigation](examples/part1-investigation-fixed.sh) keeps files in `$PDF_RUN_DIR`, handles zero-match counts without aborting, accepts qpdf's warning-only exit code 3, and reports unexpected failures with the command and line number. Choose **part1-investigation-fixed** in the script library when it has been saved there, or paste that file into **Build a script** and use that name. Its QDF resource extraction still has the limitations described above; use the original-PDF helper when original object numbers or indirect resource dictionaries matter.
+
+The builder reconnects after a backend restart when a request has an expired lab token. Its Run button stays disabled while saving, importing or investigating, and becomes available again when the active investigation finishes.
 
 ## 10. A repeatable Part 2 workflow
 

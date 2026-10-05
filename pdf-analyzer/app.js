@@ -15,9 +15,14 @@ const busy = status => ['running','queued'].includes(status);
 let toastTimer;
 function toast(message, error=false) { $('#toast').textContent=message; $('#toast').className=`toast${error?' error':''}`; clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('#toast').classList.add('hidden'),5000); }
 function debounce(fn, delay=220) {let timer; return (...args)=>{clearTimeout(timer);timer=setTimeout(()=>fn(...args),delay);};}
-async function api(path, body) {
+async function api(path, body, reconnect=true) {
   const response=await fetch(path, body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-Lab-Token':state.data?.token || ''},body:JSON.stringify(body)});
   const result=await response.json();
+  if(response.status===403 && body!==undefined && reconnect && result.error==='Reload the local lab to reconnect.') {
+    const fresh=await api('/api/dashboard');
+    if(state.data)state.data.token=fresh.token;
+    return api(path,body,false);
+  }
   if(!response.ok) throw new Error(result.error || `Request failed (${response.status})`);
   return result;
 }
@@ -25,12 +30,13 @@ function download(name,text,type='text/plain') {const blob=new Blob([text],{type
 function csv(headers,rows) {const quote=x=>`"${String(x??'').replace(/^[=+@-]/,"'$&").replace(/"/g,'""')}"`;return '\ufeff'+[headers.map(quote).join(','),...rows.map(r=>headers.map(h=>quote(r[h])).join(','))].join('\r\n');}
 function docLink(id) {return `<button class="doc-link" data-document="${esc(id)}">${esc(id)}</button>`;}
 function toolTags(tools) {return tools?.length?tools.map(t=>`<span class="tool-tag">${esc(t)}</span>`).join(' '):'<span class="muted-dash">—</span>';}
-const titles={overview:'DASHBOARD',evidence:'EVIDENCE EXPLORER',comparison:'TOOL COMPARISON',scripts:'SCRIPT STUDIO',notebook:'FIELD NOTEBOOK'};
+const titles={setup:'LAB SETUP',overview:'DASHBOARD',evidence:'EVIDENCE EXPLORER',comparison:'TOOL COMPARISON',scripts:'SCRIPT STUDIO',notebook:'FIELD NOTEBOOK'};
 function showView(view) {
   if(!titles[view])return;
   const changed=state.view!==view;state.view=view;if(changed)window.scrollTo({top:0,behavior:'instant'});$$('.nav-item').forEach(el=>{const active=el.dataset.view===view;el.classList.toggle('active',active);if(active)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');});$$('.view').forEach(el=>el.classList.toggle('active',el.id===view));$('#page-title').textContent=titles[view];history.replaceState(null,'',`#${view}`);
   if(state.data && view==='evidence')renderEvidence();
   if(state.data && view==='scripts')loadHistory().catch(e=>toast(e.message,true));
+  if(state.data && view==='setup')loadSetup();
 }
 function table(headers, rows, {labels={}, context='', empty='No evidence matches this selection.'}={}) {
   if(!rows.length)return `<div class="empty">${esc(empty)}</div>`;
@@ -93,12 +99,22 @@ function renderScripts(selected) {
   if(state.data.scripts.some(s=>s.id===value))select.value=value;
   updateScriptDescription();
 }
+function runBlockReason() {
+  if(!state.data)return 'Connect to the lab before running an investigation.';
+  if(state.starting)return 'Saving and starting your investigation…';
+  if(state.running||state.setup?.activeInvestigation)return 'Wait for the current investigation to finish, or stop it.';
+  if(state.uploadBusy||importBusy(state.setup?.import?.status))return 'Wait for your PDF import to finish.';
+  return '';
+}
+function updateRunAvailability() {
+  const reason=runBlockReason();$('#run-script').disabled=!!reason;$('#run-script').title=reason||'Run this investigation';
+}
 function updateScriptDescription() {
   const script=state.data?.scripts.find(s=>s.id===$('#script-select').value);
   $('#script-description').textContent=script?.description || 'No scripts found in observations.';
   const arg=script?.argument||'none';$('#arguments-field').classList.toggle('hidden',arg==='none');
   $('#script-arguments').placeholder=arg==='document'?'e.g. 22ZOC':arg==='tool'?'e.g. pr01':arg==='set'?'e.g. tools/pr01':'e.g. tools/pr01 tools/pr02';
-  $('#run-script').disabled=!state.data||!!state.running;
+  updateRunAvailability();
 }
 function shellQuote(value) {return "'"+String(value).replaceAll("'","'\\''")+"'";}
 function generateScript() {
@@ -117,18 +133,19 @@ async function saveScript() {
   state.data.scripts=result.scripts;renderScripts(result.id);$('#save-status').textContent='Saved to observations/gui-scripts';return result.id;
 }
 async function startRun() {
-  if(state.running)return;
-  const button=$('#run-script');button.disabled=true;
+  const blocked=runBlockReason();if(blocked){$('#run-status').textContent=blocked;return;}
+  state.starting=true;updateRunAvailability();$('#run-status').textContent='Saving and starting your investigation…';
   try {
     const script=state.studioMode==='editor'?await saveScript():$('#script-select').value;
     const job=await api('/api/run',{script,arguments:state.studioMode==='library'?$('#script-arguments').value:'',label:state.studioMode==='editor'?$('#script-name').value:$('#script-select').selectedOptions[0]?.textContent});
     state.running=job.id;state.job=job;state.resultOffset=0;resetSummary();$('#result-table').innerHTML='<div class="empty">Investigation in progress. Results appear when the run finishes.</div>';$('#result-pagination').innerHTML='';$('#result-select').innerHTML='';$('#export-results').disabled=true;$('#jump-results').disabled=true;
     updateRun(job);pollRun(job.id);
-  } catch(error) {toast(error.message,true);$('#run-status').textContent=error.message;button.disabled=!!state.running;}
+  } catch(error) {toast(error.message,true);$('#run-status').textContent=error.message;$('#save-status').textContent=error.message;$('#run-badge').textContent='NOT STARTED';$('#run-badge').className='tag failed';$('#run-meta').textContent='Your investigation could not start.';$('#console').innerHTML='<span class="stderr">'+esc(error.message)+'</span>';}
+  finally {state.starting=false;updateRunAvailability();}
 }
 function updateRun(job) {
   state.job=job;$('#run-badge').textContent=job.status.toUpperCase();$('#run-badge').className='tag '+job.status;
-  $('#cancel-run').classList.toggle('hidden',!state.running);$('#run-script').disabled=!!state.running;
+  $('#cancel-run').classList.toggle('hidden',!state.running);updateRunAvailability();
   const started=job.startedAt || job.createdAt;const duration=Math.max(0,Math.round(((job.endedAt?new Date(job.endedAt):new Date())-new Date(started))/1000));
   $('#run-meta').textContent=`${job.label} · ${job.id} · ${duration}s${job.exitCode!==null?' · exit '+job.exitCode:''}`;
   $('#run-status').textContent=busy(job.status)?'Investigation running…':job.status==='completed'?'Run complete. Evidence refreshed.':job.error || `Run ${job.status}. Inspect the output for details.`;
@@ -144,7 +161,7 @@ async function pollRun(id) {
   try {
     const job=await api('/api/jobs/'+id);updateRun(job);
     if(busy(job.status)||job.finalized===false) {state.running=id;state.timer=setTimeout(()=>pollRun(id),1000);}
-    else {state.running=null;updateRun(job);await refreshData();await loadHistory();setupResults(job);}
+    else {state.running=null;updateRun(job);await refreshData();await loadHistory();await loadSetup();setupResults(job);}
   } catch(error) {$('#run-status').textContent='Connection lost. Retrying…';state.timer=setTimeout(()=>pollRun(id),2500);}
 }
 async function loadHistory() {
@@ -330,11 +347,79 @@ async function refreshData(initial=false) {
   $('#offline').classList.add('hidden');$('#connection-text').textContent='Local lab connected';$('#connection-dot').classList.remove('offline');
   renderDashboard();renderMatrix();renderScripts();if(state.view==='evidence')renderEvidence();
 }
+function importBusy(status) {return ['uploading','extracting','validating','installing'].includes(status);}
+function renderSetup() {
+  const data=state.setup;if(!data)return;const toolsReady=Object.values(data.dependencies).every(Boolean),dataset=data.dataset;
+  $('#setup-mode').textContent=data.container?'DOCKER LAB':'LOCAL LAB';
+  $('#script-permissions-note').textContent=data.container?'Custom scripts run inside your Docker lab.':'Custom scripts run with your local account permissions.';
+  $('#setup-tools-status').textContent=toolsReady?'All required tools are installed and ready.':'Missing: '+Object.entries(data.dependencies).filter(([,ok])=>!ok).map(([name])=>name).join(', ');
+  $('#setup-tools-badge').textContent=toolsReady?'READY':'NEEDS SETUP';$('#setup-tools-badge').className='tag '+(toolsReady?'cyan':'pink');
+  $('#setup-dataset-status').textContent=dataset.pdfs?`${number(dataset.available)} PDFs ready to inspect · ${number(dataset.missing)} observation IDs still have no PDF.`:'Your lab is prepared. Import PDFs or the assignment dataset ZIP to begin.';
+  $('#setup-dataset-badge').textContent=dataset.available?'READY':'ADD PDFs';$('#setup-dataset-badge').className='tag '+(dataset.available?'cyan':'pink');
+  $('#setup-ready-badge').textContent=data.ready?'READY':'WAITING';$('#setup-ready-badge').className='tag '+(data.ready?'cyan':'');
+  $('#setup-workspace-counts').innerHTML=[['PDFs',dataset.pdfs],['Scripts',data.scripts],['Exemplar tools',data.tools]].map(([label,value])=>`<div><b>${number(value)}</b><span>${label}</span></div>`).join('');
+  $('#setup-tool-list').innerHTML=Object.entries(data.dependencies).map(([name,ok])=>`<span class="health-item ${ok?'':'missing'}">${ok?'✓':'!'} ${esc(name)}</span>`).join('');
+  $('#setup-storage').textContent=`${data.storage} · ${number(Math.floor(data.freeBytes/1024**3))} GiB free. PDFs, saved scripts, notes and results stay available between lab restarts.`;
+  $('#setup-native-note').classList.toggle('hidden',data.container);
+  $('#setup-next-hint').textContent=data.ready?'Your lab is ready. Start with a small investigation, then explore your PDFs and compare exemplars.':'Add your PDFs and check the tools above to start your first investigation.';
+  const blocked=state.uploadBusy||importBusy(data.import.status)||data.activeInvestigation;
+  updateRunAvailability();
+  $('#setup-first-investigation').disabled=!data.ready||blocked;$('#setup-open-evidence').disabled=!dataset.available;
+  $('#dataset-files').disabled=!!blocked;$('#import-dataset').disabled=!state.datasetFiles?.length||!data.canImport||!!state.uploadBusy;
+  const message=$('#setup-import-message');message.className=['completed','failed'].includes(data.import.status)?data.import.status==='failed'?'alert':'setup-success':'hidden';message.textContent=data.import.message||'';
+  if(data.activeInvestigation){message.className='inspection-notice';message.textContent='An investigation is running. You can import more PDFs when it finishes.';}
+  if(importBusy(data.import.status)&&!state.uploadBusy){$('#setup-import-progress').classList.remove('hidden');$('#dataset-progress').removeAttribute('value');$('#dataset-progress-text').textContent=data.import.message||'Preparing your PDFs…';}
+  else if(!state.uploadBusy)$('#setup-import-progress').classList.add('hidden');
+}
+async function loadSetup() {
+  clearTimeout(state.setupTimer);const request=state.setupRequest=(state.setupRequest||0)+1;
+  try {
+    const previous=state.setup?.import?.status,data=await api('/api/setup');if(request!==state.setupRequest)return;
+    state.setup=data;renderSetup();
+    if((importBusy(data.import.status)||data.activeInvestigation)&&!state.uploadBusy)state.setupTimer=setTimeout(loadSetup,1000);
+    if(importBusy(previous)&&data.import.status==='completed'&&!state.uploadBusy)await refreshData();
+    return data;
+  }catch(error){$('#setup-tools-status').textContent='Could not check the lab. Restart it with the Start Lab launcher, then check again.';$('#setup-import-message').className='alert';$('#setup-import-message').textContent=error.message;}
+}
+function chooseDataset(files) {
+  const selected=Array.from(files),invalid=selected.find(f=>!(/\.(pdf|zip)$/i.test(f.name))||f.size===0||f.size>(state.setup?.maxUploadBytes||4*1024**3));
+  state.datasetFiles=invalid?[]:selected;$('#setup-selected').textContent=selected.length?`${selected.length} file${selected.length===1?'':'s'} selected · ${number(Math.ceil(selected.reduce((n,f)=>n+f.size,0)/1024**2))} MiB`:'No files selected.';
+  renderSetup();if(invalid){$('#setup-import-message').className='alert';$('#setup-import-message').textContent=`${invalid.name}: choose a non-empty PDF or ZIP no larger than 4 GiB.`;}
+}
+function uploadDatasetFile(file,index,total) {
+  return new Promise((resolve,reject)=>{
+    const xhr=new XMLHttpRequest();xhr.open('POST','/api/setup/import?filename='+encodeURIComponent(file.name));xhr.setRequestHeader('X-Lab-Token',state.data.token);xhr.setRequestHeader('Content-Type','application/octet-stream');
+    xhr.upload.onprogress=event=>{if(event.lengthComputable){const percent=Math.round(event.loaded/event.total*100);$('#dataset-progress').value=percent;$('#dataset-progress-text').textContent=`Uploading ${index+1}/${total}: ${file.name} · ${percent}%`;}};
+    xhr.onload=()=>{let result;try{result=JSON.parse(xhr.responseText);}catch{reject(new Error('The upload returned an unexpected response. Restart the lab and try again.'));return;}if(xhr.status>=200&&xhr.status<300)resolve(result);else reject(new Error(result.error||'The upload failed. Try again.'));};
+    xhr.onerror=()=>reject(new Error('Connection lost during upload. Reopen the lab and try again.'));xhr.onabort=()=>reject(new Error('Upload cancelled.'));xhr.send(file);
+  });
+}
+async function importDataset() {
+  const files=state.datasetFiles||[];if(!files.length||state.uploadBusy)return;
+  state.uploadBusy=true;state.setupRequest++;clearTimeout(state.setupTimer);renderSetup();$('#setup-import-message').className='hidden';$('#setup-import-progress').classList.remove('hidden');
+  let imported=0,skipped=0,rejected=[],finalMessage='',failed=false;
+  try {
+    for(let i=0;i<files.length;i++) {
+      $('#dataset-progress').value=0;$('#dataset-progress-text').textContent=`Uploading ${i+1}/${files.length}: ${files[i].name}`;
+      await uploadDatasetFile(files[i],i,files.length);$('#dataset-progress').removeAttribute('value');
+      while(true) {
+        const data=await api('/api/setup');state.setup=data;renderSetup();$('#dataset-progress-text').textContent=`File ${i+1}/${files.length}: ${data.import.message||'Preparing PDFs…'}`;
+        if(data.import.status==='failed')throw new Error(data.import.message);
+        if(data.import.status==='completed'){imported+=data.import.imported;skipped+=data.import.skipped;rejected.push(...(data.import.rejected||[]));break;}
+        await new Promise(resolve=>setTimeout(resolve,1000));
+      }
+    }
+    state.datasetFiles=[];$('#dataset-files').value='';$('#setup-selected').textContent='No files selected.';
+    await refreshData();state.uploadBusy=false;await loadSetup();
+    finalMessage=`${number(imported)} PDFs added · ${number(skipped)} originals already present. You can now investigate in the web app.`+(rejected.length?` ${number(rejected.length)} files named .pdf did not contain PDF data and were skipped: ${rejected.slice(0,20).join(', ')}${rejected.length>20?' …':''}`:'');
+  }catch(error){failed=true;state.uploadBusy=false;await loadSetup();finalMessage=error.message+(imported?` ${number(imported)} PDFs from earlier files in this batch were already added.`:'');}
+  finally{state.uploadBusy=false;$('#setup-import-progress').classList.add('hidden');renderSetup();$('#setup-import-message').className=failed?'alert':'setup-success';$('#setup-import-message').textContent=finalMessage;}
+}
 async function boot() {
   ['#builder-type'].forEach(selector=>$(selector).innerHTML='<option value="">Any resource</option>'+types.map(t=>`<option>${t}</option>`).join(''));
   generateScript();showView(location.hash.slice(1)||'overview');
-  try {await refreshData(true);const jobs=await loadHistory();const active=jobs.find(j=>busy(j.status));if(active){state.running=active.id;pollRun(active.id);}else if(jobs.length){const job=await api('/api/jobs/'+jobs[0].id);updateRun(job);setupResults(job);}}
-  catch(error){$('#offline').classList.remove('hidden');$('#offline').textContent='Could not connect to the lab. In VS Code, run the “Start PDF Analyzer” task, then open http://127.0.0.1:8766. '+error.message;$('#connection-text').textContent='Lab disconnected';$('#connection-dot').classList.add('offline');$('#run-script').disabled=true;}
+  try {await refreshData(true);const setup=await loadSetup();if(setup&&!setup.ready)showView('setup');const jobs=await loadHistory();const active=jobs.find(j=>busy(j.status));if(active){state.running=active.id;pollRun(active.id);}else if(jobs.length){const job=await api('/api/jobs/'+jobs[0].id);updateRun(job);setupResults(job);}}
+  catch(error){$('#offline').classList.remove('hidden');$('#offline').textContent='Could not connect to the lab. Start Docker, open the Start Lab launcher, then refresh this page. '+error.message;$('#connection-text').textContent='Lab disconnected';$('#connection-dot').classList.add('offline');$('#run-script').disabled=true;}
 }
 // Delegated controls keep tables interactive after paging and refreshes.
 document.addEventListener('click',async event=>{
@@ -389,6 +474,14 @@ $('#summary-chart').addEventListener('keydown',event=>{const bar=event.target.cl
 $('#save-notes').addEventListener('click',async()=>{state.notes._notebook=$('#notebook-text').value;try{await saveNotes();$('#notes-status').textContent='Saved '+new Date().toLocaleTimeString();}catch(error){toast(error.message,true);}});
 $('#export-notes').addEventListener('click',()=>{state.notes._notebook=$('#notebook-text').value;const text=['# PDF Analyzer — Investigation notes',state.notes._notebook||'',...Object.entries(state.notes).filter(([key])=>key!=='_notebook').map(([key,value])=>`## ${key}\n\n${value}`)].join('\n\n');download('pdf-investigation-notes.md',text);});
 $('#refresh').addEventListener('click',async()=>{$('#refresh').classList.add('refreshing');try{await refreshData(!state.data);toast('Evidence refreshed.');}catch(error){toast(error.message,true);}finally{$('#refresh').classList.remove('refreshing');}});
+$('#dataset-files').addEventListener('change',event=>chooseDataset(event.target.files));
+$('#dataset-drop').addEventListener('dragover',event=>{event.preventDefault();if(!state.uploadBusy)$('#dataset-drop').classList.add('dragging');});
+$('#dataset-drop').addEventListener('dragleave',()=>$('#dataset-drop').classList.remove('dragging'));
+$('#dataset-drop').addEventListener('drop',event=>{event.preventDefault();$('#dataset-drop').classList.remove('dragging');if(!state.uploadBusy&&state.setup?.canImport)chooseDataset(event.dataTransfer.files);});
+$('#import-dataset').addEventListener('click',importDataset);
+$('#refresh-setup').addEventListener('click',loadSetup);
+$('#setup-open-evidence').addEventListener('click',()=>showView('evidence'));
+$('#setup-first-investigation').addEventListener('click',()=>{const first=state.data?.documents.find(d=>d.available);if(!first)return;$('#builder-documents').value=first.id;$('#builder-tool').value='';$('#builder-type').value='';$('#builder-prefix').value='';$('#template-mode').value='resources';generateScript();setStudioMode('editor');showView('scripts');});
 $('#close-inspector').addEventListener('click',()=>{$('#inspector').close();state.inspector=null;});
 $('#inspector').addEventListener('cancel',()=>state.inspector=null);
 $('#inspector').addEventListener('click',event=>{if(event.target===$('#inspector')){const rect=event.target.getBoundingClientRect();if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom){event.target.close();state.inspector=null;}}});

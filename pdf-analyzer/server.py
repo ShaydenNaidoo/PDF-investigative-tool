@@ -15,6 +15,7 @@ import shlex
 import shutil
 import signal
 import subprocess
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -23,8 +24,9 @@ import uuid
 import lab
 import inspection
 import summaries
+import lab_setup
 
-API_VERSION = 3
+API_VERSION = 4
 
 ROOT, OBS, DATASET = lab.ROOT, lab.OBS, lab.DATASET
 STATIC = Path(__file__).resolve().parent
@@ -36,6 +38,7 @@ LOCK = threading.RLock()
 JOBS, PROCESSES, CACHE = {}, {}, {}
 VIEW_CACHE = OrderedDict()
 SUMMARY_CACHE = OrderedDict()
+IMPORT_STATE = {'status': 'idle'}
 CATALOG = {
     'part1_resources.sh': ('Extract resource marks', 'Scan the full observation set with your Bash + qpdf extraction script.', 'none'),
     'test_part1.sh': ('Test one PDF', 'Run your supplied extraction test. Its output is kept separate from the full dataset.', 'document'),
@@ -57,6 +60,52 @@ CATALOG = {
 
 def now():
     return datetime.now(timezone.utc).isoformat()
+
+
+def importing():
+    return IMPORT_STATE['status'] in ('uploading', 'extracting', 'validating', 'installing')
+
+
+def setup_status():
+    with LOCK:
+        state = dict(IMPORT_STATE)
+        active = any(j['status'] in ('queued', 'running') for j in JOBS.values())
+        index = lab.pdf_index()
+        expected = set(lab.lines(OBS / 'all'))
+        available = len(expected & set(index))
+        can_import = not active and not importing() and os.access(DATASET, os.W_OK)
+    dependencies = {name: bool(shutil.which(name)) for name in lab_setup.TOOLS}
+    return {'container': os.environ.get('PDF_LAB_CONTAINER') == '1',
+            'ready': all(dependencies.values()) and available > 0,
+            'dependencies': dependencies, 'dataset': {'pdfs': len(index), 'available': available,
+                'expected': len(expected), 'missing': len(expected - set(index))},
+            'scripts': len(catalog()), 'tools': len(list((OBS / 'tools').glob('pr*'))),
+            'storage': 'Persistent Docker volume' if os.environ.get('PDF_LAB_CONTAINER') == '1' else 'Local project storage',
+            'freeBytes': shutil.disk_usage(DATASET).free if DATASET.is_dir() else 0,
+            'import': state, 'canImport': can_import,
+            'activeInvestigation': active, 'maxUploadBytes': lab_setup.MAX_UPLOAD_BYTES}
+
+
+def import_worker(upload, filename):
+    def progress(**changes):
+        with LOCK:
+            IMPORT_STATE.update(changes)
+    try:
+        progress(status='extracting', message='Reading the archive and preparing your PDFs')
+        result = lab_setup.import_dataset(upload, filename, DATASET, OBS, progress)
+        with LOCK:
+            CACHE.clear()
+            VIEW_CACHE.clear()
+            SUMMARY_CACHE.clear()
+            IMPORT_STATE.update(result, status='completed', endedAt=now())
+    except Exception as error:
+        progress(status='failed', message=str(error), endedAt=now())
+    finally:
+        upload.unlink(missing_ok=True)
+        with LOCK:
+            CACHE.clear()
+            VIEW_CACHE.clear()
+            SUMMARY_CACHE.clear()
 
 
 def read_text(path):
@@ -356,6 +405,8 @@ def start_run(payload):
     if missing:
         raise ValueError('Missing tools: ' + ', '.join(missing))
     with LOCK:
+        if importing():
+            raise ValueError('Your PDFs are being imported. Wait for setup to finish before running an investigation.')
         if PROCESSES or any(j['status'] in ('queued', 'running') for j in JOBS.values()):
             raise ValueError('Another investigation is running. Wait or stop it before starting a new one.')
         identifier = uuid.uuid4().hex[:12]
@@ -402,7 +453,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == '/api/health':
                 return self.json({'app': 'pdf-analyzer', 'version': API_VERSION,
-                                  'capabilities': ['pdf-inspection', 'result-summaries']})
+                                  'capabilities': ['pdf-inspection', 'result-summaries', 'lab-setup']})
+            if path == '/api/setup':
+                return self.json(setup_status())
             if path == '/api/dashboard':
                 return self.json(dashboard())
             if path == '/api/resources':
@@ -538,6 +591,8 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get('Origin')
         if origin and origin != 'http://' + self.headers.get('Host', ''):
             return self.json({'error': 'Same-origin request required'}, 403)
+        if urllib.parse.urlparse(self.path).path == '/api/setup/import':
+            return self.receive_import()
         try:
             size = int(self.headers.get('Content-Length', '0'))
             if not 0 < size <= 256000:
@@ -587,6 +642,49 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, KeyError, OSError, subprocess.SubprocessError) as error:
             self.json({'error': str(error)}, 400)
 
+    def receive_import(self):
+        upload, claimed = None, False
+        try:
+            parsed = urllib.parse.urlparse(self.path)
+            query = urllib.parse.parse_qs(parsed.query)
+            filename = lab_setup.upload_name(query.get('filename', [''])[0])
+            size = int(self.headers.get('Content-Length', '0'))
+            if not 0 < size <= lab_setup.MAX_UPLOAD_BYTES:
+                raise ValueError('Choose a file between 1 byte and 4 GiB. Larger datasets can be split into smaller ZIP files.')
+            with LOCK:
+                if importing() or any(j['status'] in ('queued', 'running') for j in JOBS.values()):
+                    raise ValueError('Wait for the current import or investigation to finish before importing more PDFs.')
+                IMPORT_STATE.clear()
+                IMPORT_STATE.update(status='uploading', filename=filename, bytes=size, receivedBytes=0,
+                                    startedAt=now(), message='Uploading your dataset')
+                claimed = True
+            if shutil.disk_usage(DATASET).free < size + 64 * 1024**2:
+                raise ValueError('There is not enough space in the lab storage for this upload.')
+            (OBS / '.uploads').mkdir(exist_ok=True)
+            with tempfile.NamedTemporaryFile(dir=OBS / '.uploads', prefix='upload-', suffix='.upload', delete=False) as handle:
+                upload = Path(handle.name)
+                remaining = size
+                self.connection.settimeout(120)
+                while remaining:
+                    block = self.rfile.read(min(1024 * 1024, remaining))
+                    if not block:
+                        raise ValueError('The upload was interrupted. Select the file and try again.')
+                    handle.write(block)
+                    remaining -= len(block)
+                    with LOCK:
+                        IMPORT_STATE['receivedBytes'] = size - remaining
+            with LOCK:
+                IMPORT_STATE.update(status='extracting', message='Upload complete. Preparing your PDFs.')
+            threading.Thread(target=import_worker, args=(upload, filename), daemon=True).start()
+            return self.json({'accepted': True, 'filename': filename}, 202)
+        except (ValueError, OSError) as error:
+            if upload:
+                upload.unlink(missing_ok=True)
+            if claimed:
+                with LOCK:
+                    IMPORT_STATE.update(status='failed', message=str(error), endedAt=now())
+            return self.json({'error': str(error)}, 400)
+
     def log_message(self, *_):
         pass
 
@@ -594,12 +692,12 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--port', type=int, default=8766)
+    parser.add_argument('--host', default='127.0.0.1', help='Bind address; Docker uses 0.0.0.0')
     parser.add_argument('--open', action='store_true', help='Open the lab in your browser')
     args = parser.parse_args()
-    RUNS.mkdir(exist_ok=True)
     url = f'http://127.0.0.1:{args.port}'
     try:
-        server = ThreadingHTTPServer(('127.0.0.1', args.port), Handler)
+        server = ThreadingHTTPServer((args.host, args.port), Handler)
     except OSError as error:
         import urllib.request
         try:
@@ -616,6 +714,8 @@ if __name__ == '__main__':
             import webbrowser
             webbrowser.open(url)
         raise SystemExit(0)
+    seed = Path(os.environ['PDF_SEED_ENVIRONMENT']) if os.environ.get('PDF_SEED_ENVIRONMENT') else None
+    lab_setup.initialize(OBS, DATASET, seed)
     load_jobs()
     print(f'PDF Analyzer running at {url}', flush=True)
     if args.open:

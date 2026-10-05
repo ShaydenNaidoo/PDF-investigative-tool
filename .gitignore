@@ -29,6 +29,10 @@ venv/
 /environment_set/environment/observations/part1-test-results/
 /environment_set/environment/observations/gui-runs/
 /environment_set/environment/observations/gui-notes.json
+/environment_set/environment/observations/.uploads/
 
 # Friend's script is outside the app's investigation workflow
 /environment_set/environment/scan_resources.sh
+
+# Optional local Docker workspace backup
+/lab-backup/

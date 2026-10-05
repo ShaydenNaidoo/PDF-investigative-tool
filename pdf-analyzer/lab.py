@@ -3,14 +3,15 @@
 import argparse
 import csv
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parent.parent
-OBS = ROOT / 'environment_set/environment/observations'
-DATASET = ROOT / 'environment_set/master-gdc-gdcdatasets-2020445568-2020445568/lcwa_gov_pdf_data/data'
+OBS = Path(os.environ.get('PDF_OBSERVATIONS_DIR', ROOT / 'environment_set/environment/observations')).resolve()
+DATASET = Path(os.environ.get('PDF_DATASET_DIR', ROOT / 'environment_set/master-gdc-gdcdatasets-2020445568-2020445568/lcwa_gov_pdf_data/data')).resolve()
 CATEGORIES = ('Font', 'XObject', 'ColorSpace', 'ExtGState', 'Pattern', 'Shading', 'Properties')
 
 

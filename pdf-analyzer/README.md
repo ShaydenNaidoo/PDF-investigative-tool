@@ -1,15 +1,28 @@
 # PDF Analyzer · Vice Lab
 
-A local COS 721 PDF investigation app with a Vice City inspired synthwave design: neon lights, an animated sunset, palm silhouettes, transitions, click ripples and live run effects. Motion respects your operating system's reduced-motion preference. Assets are local; no internet connection or third-party Python packages are needed.
+A local COS 721 PDF investigation app with a Vice City inspired synthwave design: neon lights, an animated sunset, palm silhouettes, transitions, click ripples and live run effects. Motion respects your operating system's reduced-motion preference. Interface assets are local; no third-party Python packages are needed. The first Docker build downloads the lab tools; later investigations work locally.
 
-## Open the GUI
+## Open the Docker GUI
 
-In VS Code, open the Command Palette (`Ctrl+Shift+P`), choose **Tasks: Run Task**, then **Start PDF Analyzer**. The task starts the backend and opens your browser at <http://127.0.0.1:8766>. Keep the task running while using the app.
+Install Docker once using the [installation instructions](../README.md#start-the-docker-lab). In VS Code choose **Tasks: Run Task → Start PDF Analyzer (Docker)**, or open the matching **Start Lab** launcher from the repository root. The launcher installs all lab tools in Docker and opens <http://localhost:8080>.
 
-The backend can also be launched with `python3 pdf-analyzer/server.py --open`. Change the port with `--port` if 8766 is occupied. Required tools are `bash`, `qpdf` with JSON v2 support, `pdfinfo`, `pdftotext`, `awk`, `sed`, `grep`, `find`, `sort`, `uniq`, and `column`. Your environment already provides these. Restart the server after changing its Python files; refreshing the browser alone does not reload the backend. If an older backend is already running, the launcher tells you to stop the existing task and start it again. Reusing an existing server leaves saved run records unchanged.
+**Lab setup** shows tool readiness, script counts, exemplar sets, imported PDFs and free disk space. Drop your PDF files or assignment ZIP onto the upload area, then click **Import into lab**. Nested assignment ZIPs are supported. Imports accept files up to 4 GiB each, up to 20,000 PDFs and 8 GiB of expanded archive content, including nested ZIP contents. Import status is visible while processing; keep the page open until the upload completes. If interrupted, restart the lab and retry. Already imported identical PDFs are kept. Files named `.pdf` without PDF content are skipped and listed in the report; valid PDFs in the same ZIP still import.
+
+Click **Build first investigation** to generate a resource investigation for an available PDF. Review it, run it, and inspect the resulting table. **Explore PDFs** opens the evidence explorer. You can return to **Lab setup** to add more PDFs. Imports and investigations run one at a time to keep the evidence inventory consistent.
+
+The included baseline observations contain IDs for the full assignment corpus. Before importing that corpus, the app reports these PDFs as missing. Importing a personal PDF does not invent a tool label; it appears as **Unassigned** in exemplar summaries.
+
+The Docker lab saves PDFs, custom scripts, notes and results in a named volume. Use **Stop PDF Analyzer (Docker)** to stop it; launching again restores your work. See [backup and restart instructions](../README.md#set-up-and-investigate-in-the-browser). Scripts use `/workspace/environment/observations` and `/workspace/dataset` inside Docker. Use the environment variables below when building scripts so they work in either mode. Existing native runs and notes remain in their original local workspace.
+
+## Open the native GUI (optional)
+
+The **Start PDF Analyzer** VS Code task or `python3 pdf-analyzer/server.py --open` opens <http://127.0.0.1:8766>. Keep that task running while using the app. Required local tools are Python 3.11+, Bash, qpdf with JSON v2 support, Poppler (`pdfinfo`, `pdftotext`), awk, sed, grep, find, sort, uniq and column.
+
+Change the port with `--port` if 8766 is occupied. Restart the server after changing its Python files. **Lab setup** also works here and imports into `environment_set/master-gdc-gdcdatasets-2020445568-2020445568/lcwa_gov_pdf_data/data`. Observation scripts, runs and notes stay under `environment_set/environment/observations`.
 
 ## Investigate without terminal commands
 
+- **Lab setup:** automatic environment preparation, tool checks, browser PDF/ZIP imports and readiness status.
 - **Dashboard:** real dataset counts, resource-prefix frequencies, tool availability, and assignment examples to inspect.
 - **Evidence explorer:** searchable documents and resource mappings, tool/type filters, sortable columns, pagination, and CSV exports of all matching rows.
 - **Document inspector:** open the original PDF, search strings and tags, view complete document metadata and XMP, inspect resource subtypes, local resource scopes, original object definitions and decoded streams, numbering gaps, name reuse, existing marks, and document notes.
@@ -75,7 +88,7 @@ For the supplied `14a7b9bef915-all-resources.csv`, reopen **part1-investigation*
 
 ## Scripts and result files
 
-Scripts run inside `environment_set/environment/observations` with the normal local account's permissions. Saved custom scripts are in `observations/gui-scripts`. Each run preserves a copy of its script, stdout/stderr, timestamps, status, exit code, and tables under `observations/gui-runs/<run-id>`. Runs are serialized so assignment scripts cannot concurrently overwrite shared outputs. A run has a 30-minute limit; stopping a run terminates its process group.
+Scripts run inside `/workspace/environment/observations` as the container's `lab` user in Docker, or inside `environment_set/environment/observations` with the local account's permissions in native mode. Saved custom scripts are in `observations/gui-scripts`. Each run preserves a copy of its script, stdout/stderr, timestamps, status, exit code, and tables under `observations/gui-runs/<run-id>`. Runs are serialized so assignment scripts cannot concurrently overwrite shared outputs. A run has a 30-minute limit; stopping a run terminates its process group.
 
 Custom scripts can print TSV with a header to stdout, or write `.tsv` files to `$PDF_RUN_DIR`. Plain stdout is shown as a line/result table. These environment variables are available:
 
@@ -98,10 +111,16 @@ Resource tables page through every matching row and export the complete filtered
 
 ## Validation
 
-Run `python3 -m unittest discover -s pdf-analyzer -v`. The fifteen tests use an isolated fixture dataset and check source object references, local resource scopes and numbering gaps, API filtering/exports, script execution and persistence, cancellation, local request validation, and separation of single-document test results. They also cover strings offsets and search, exact tags, compressed objects/content, decoded streams, custom metadata and XMP, index limits, and preservation of the original PDF. Summary tests cover full-table aggregation, distinct-PDF counts, filters, coverage denominators, missing IDs, overlapping membership, complete exports, and cache refresh when results or exemplar sets change. They also check capability reporting and rejection of unknown run views and resource columns used as PDF IDs.
+Run `python3 -m unittest discover -s pdf-analyzer -v`. The 24 tests use an isolated fixture dataset and check source object references, local resource scopes and numbering gaps, API filtering/exports, script execution and persistence, cancellation, local request validation, and separation of single-document test results. They also cover strings offsets and search, exact tags, compressed objects/content, decoded streams, custom metadata and XMP, index limits, and preservation of the original PDF. Summary tests cover full-table aggregation, distinct-PDF counts, filters, coverage denominators, missing IDs, overlapping membership, complete exports, and cache refresh when results or exemplar sets change. They also check capability reporting and rejection of unknown run views and resource columns used as PDF IDs.
 
 Browser workflow checks also covered the real dataset, supplied test script, generated-script execution, original PDF inspection, results tables, the 15-tool matrix, mobile layout, and reduced motion.
 
 The strings/metadata browser checks cover direct document shortcuts, highlighted searches, exact tags, pagination, exports, stream decoding, page text, switching documents during requests, existing resource/numbering views, and mobile layout.
 
 Summary browser checks use the real 130,026-row saved run and cover the three chart measures, bar interactions, filters, breakdowns, pagination, CSV/SVG exports, table switching, unsupported tables, stale responses, empty searches, mobile layout and reduced motion. Its aggregates were also checked against the supplied CSV. The corrected workflow was verified on the default port 8766, including clear handling of an outdated backend response and automatic PDF ID selection.
+
+Setup tests also cover nested assignment archives, duplicate imports, original hash preservation, invalid archives and conflicting IDs, upload authentication, restart seeding without overwriting scripts/notes/results, and Docker environment paths.
+
+Docker verification built the actual image and ran all 24 tests with `TMPDIR=/workspace/home` (the container mounts `/tmp` with execution disabled). Browser checks imported the full assignment ZIP, reported its one HTML file mislabeled as a PDF, ran a saved generated investigation, displayed its exemplar summary and chart, inspected strings/metadata, and checked mobile layout. All 999 imported PDF hashes matched the originals. Container restart preserved PDFs, saved scripts and completed result tables.
+
+The strict-mode Part 1 script regression checks cover empty observation/exemplar sets, zero-overlap prefix counts, qpdf recovery warnings, missing PDFs and unchanged originals. Builder browser checks ran the corrected script on fixture PDFs and verified saved tables, exemplar summaries, expired-token reconnection, duplicate-click prevention, visible startup errors and Run-button recovery when another tab finishes a job.
