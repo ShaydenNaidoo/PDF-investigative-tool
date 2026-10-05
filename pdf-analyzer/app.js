@@ -14,7 +14,7 @@ const date = value => value ? new Date(value).toLocaleString(undefined,{month:'s
 const busy = status => ['running','queued'].includes(status);
 let toastTimer;
 function toast(message, error=false) { $('#toast').textContent=message; $('#toast').className=`toast${error?' error':''}`; clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('#toast').classList.add('hidden'),5000); }
-function debounce(fn, delay=220) {let timer; return (...args)=>{clearTimeout(timer);timer=setTimeout(()=>fn(...args),delay);};}
+function debounce(fn, delay=220) {let timer;const run=(...args)=>{clearTimeout(timer);timer=setTimeout(()=>fn(...args),delay);};run.cancel=()=>clearTimeout(timer);return run;}
 async function api(path, body, reconnect=true) {
   const response=await fetch(path, body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-Lab-Token':state.data?.token || ''},body:JSON.stringify(body)});
   const result=await response.json();
@@ -62,13 +62,50 @@ function renderDashboard() {
 function documentTable(docs,context='') {
  return table(['id','producer','tools','resources','marks','inspect'],docs.map(d=>`<tr><td><div class="doc-cell"><svg><use href="#i-file"/></svg>${docLink(d.id)}</div></td><td class="producer-cell" title="${esc(d.producer)}">${esc(d.producer)||'<span class="muted-dash">Not recorded</span>'}</td><td>${toolTags(d.tools)}</td><td class="mono">${number(d.resources)}</td><td class="mono">${number(d.marks)}</td><td><button class="text-button" data-document="${esc(d.id)}" ${d.available?'':'disabled'}>${d.available?'Inspect ↗':'PDF missing'}</button>${d.available?`<div class="document-view-actions"><button class="text-button" data-document="${esc(d.id)}" data-document-tab="strings">Strings</button><button class="text-button" data-document="${esc(d.id)}" data-document-tab="metadata">Metadata</button></div>`:''}</td></tr>`),{context,labels:{id:'DOCUMENT',tools:'EXEMPLAR TOOL',resources:'RESOURCES',marks:'MARKS',inspect:''}});
 }
+const documentSearchStorageKey='pdf-analyzer.document-searches.v1';
+const normalizeDocumentSearch=value=>String(value??'').trim().replace(/\s+/g,' ');
+let documentSearchStorageBlocked=false;
+function loadDocumentSearches(fallback=[]) {
+  try {
+    const saved=JSON.parse(localStorage.getItem(documentSearchStorageKey)||'[]'),seen=new Set();
+    if(!Array.isArray(saved))return [];
+    return saved.filter(value=>typeof value==='string').map(normalizeDocumentSearch).filter(value=>{const key=value.toLowerCase();if(!value||seen.has(key))return false;seen.add(key);return true;});
+  } catch {return fallback;}
+}
+let documentSearches=loadDocumentSearches(),pendingDocumentSearch=null,documentSearchTimer;
+function renderDocumentSearchHistory() {
+  $('#evidence-search-history').classList.toggle('hidden',state.evidenceMode!=='documents');
+  $('#clear-document-searches').disabled=!documentSearches.length;
+  $('#document-search-history-hint').textContent=documentSearchStorageBlocked?'Search history is available in this tab; your browser could not save it.':'Searches save when you pause typing or press Enter. Click one to search again · Saved in this browser.';
+  $('#document-search-history-list').innerHTML=documentSearches.map(query=>`<li class="document-search-chip"><button class="document-search-recall" data-document-search="${esc(query)}" title="Search documents for ${esc(query)}">${esc(query)}</button><button class="document-search-remove" data-remove-document-search="${esc(query)}" aria-label="Remove search: ${esc(query)}" title="Remove search">×</button></li>`).join('');
+}
+function persistDocumentSearches(searches) {
+  documentSearches=searches;
+  try {localStorage.setItem(documentSearchStorageKey,JSON.stringify(searches));documentSearchStorageBlocked=false;}
+  catch {documentSearchStorageBlocked=true;}
+  renderDocumentSearchHistory();
+}
+function rememberDocumentSearch(query) {
+  query=normalizeDocumentSearch(query);if(!query)return;
+  // Read current storage so another tab's searches are retained too.
+  const previous=loadDocumentSearches(documentSearches),key=query.toLowerCase();
+  const existing=previous.find(value=>value.toLowerCase()===key);
+  persistDocumentSearches([existing||query,...previous.filter(value=>value.toLowerCase()!==key)]);
+}
+function cancelPendingDocumentSearch() {clearTimeout(documentSearchTimer);pendingDocumentSearch=null;}
+function flushPendingDocumentSearch() {const query=pendingDocumentSearch;cancelPendingDocumentSearch();if(query)rememberDocumentSearch(query);}
+function queueDocumentSearch(query,documents=true) {
+  cancelPendingDocumentSearch();
+  if(documents&&normalizeDocumentSearch(query)){pendingDocumentSearch=query;documentSearchTimer=setTimeout(flushPendingDocumentSearch,1000);}
+}
 function evidenceQuery() {return new URLSearchParams({q:$('#evidence-search').value,tool:$('#evidence-tool').value,type:state.evidenceMode==='resources'?$('#evidence-type').value:'',offset:state.evidenceOffset,limit:50,sort:state.evidenceSort,direction:state.evidenceDirection});}
 async function renderEvidence() {
   if(!state.data)return;
   const request=++state.request;
   $('#evidence-type').classList.toggle('hidden',state.evidenceMode!=='resources');
+  $('#evidence-search-history').classList.toggle('hidden',state.evidenceMode!=='documents');
   if(state.evidenceMode==='documents') {
-    const q=$('#evidence-search').value.toLowerCase(),tool=$('#evidence-tool').value;
+    const q=normalizeDocumentSearch($('#evidence-search').value).toLowerCase(),tool=$('#evidence-tool').value;
     let docs=state.data.documents.filter(d=>(!q||[d.id,d.producer,d.creator,...d.tools].join(' ').toLowerCase().includes(q))&&(!tool||d.tools.includes(tool)));
     docs.sort((a,b)=>{let x=a[state.evidenceSort]??'',y=b[state.evidenceSort]??'';return (typeof x==='number'?x-y:String(x).localeCompare(String(y)))*(state.evidenceDirection==='desc'?-1:1);});
     state.evidenceOffset=Math.min(state.evidenceOffset,Math.max(0,Math.floor((docs.length-1)/50)*50));
@@ -417,6 +454,7 @@ async function importDataset() {
 }
 async function boot() {
   ['#builder-type'].forEach(selector=>$(selector).innerHTML='<option value="">Any resource</option>'+types.map(t=>`<option>${t}</option>`).join(''));
+  renderDocumentSearchHistory();
   generateScript();showView(location.hash.slice(1)||'overview');
   try {await refreshData(true);const setup=await loadSetup();if(setup&&!setup.ready)showView('setup');const jobs=await loadHistory();const active=jobs.find(j=>busy(j.status));if(active){state.running=active.id;pollRun(active.id);}else if(jobs.length){const job=await api('/api/jobs/'+jobs[0].id);updateRun(job);setupResults(job);}}
   catch(error){$('#offline').classList.remove('hidden');$('#offline').textContent='Could not connect to the lab. Start Docker, open the Start Lab launcher, then refresh this page. '+error.message;$('#connection-text').textContent='Lab disconnected';$('#connection-dot').classList.add('offline');$('#run-script').disabled=true;}
@@ -424,6 +462,19 @@ async function boot() {
 // Delegated controls keep tables interactive after paging and refreshes.
 document.addEventListener('click',async event=>{
   const target=event.target.closest('button, a, tr[data-job], [data-summary-tool]');if(!target)return;
+  if(target.dataset.documentSearch){
+    updateGlobalSearch.cancel();updateEvidenceSearch.cancel();cancelPendingDocumentSearch();
+    state.evidenceMode='documents';state.evidenceOffset=0;state.evidenceSort='id';state.evidenceDirection='asc';
+    $('#evidence-search').value=target.dataset.documentSearch;$('#global-search').value=target.dataset.documentSearch;$('#evidence-tool').value='';
+    $$('[data-evidence-mode]').forEach(el=>el.classList.toggle('active',el.dataset.evidenceMode==='documents'));
+    rememberDocumentSearch(target.dataset.documentSearch);showView('evidence');$('#evidence-search').focus();return;
+  }
+  if(target.dataset.removeDocumentSearch){
+    cancelPendingDocumentSearch();const key=target.dataset.removeDocumentSearch.toLowerCase();
+    persistDocumentSearches(loadDocumentSearches(documentSearches).filter(query=>query.toLowerCase()!==key));$('#evidence-search').focus();return;
+  }
+  if(target.id==='clear-document-searches'){cancelPendingDocumentSearch();persistDocumentSearches([]);$('#evidence-search').focus();return;}
+  if(target.dataset.evidenceMode||target.dataset.prefix)flushPendingDocumentSearch();
   if(target.dataset.view){event.preventDefault();showView(target.dataset.view);}
   if(target.dataset.prefix){state.evidenceMode='resources';state.evidenceOffset=0;state.evidenceSort='document';$('#evidence-search').value=target.dataset.prefix;$$('[data-evidence-mode]').forEach(el=>el.classList.toggle('active',el.dataset.evidenceMode==='resources'));showView('evidence');}
   if(target.dataset.evidenceMode){state.evidenceMode=target.dataset.evidenceMode;state.evidenceOffset=0;state.evidenceSort=state.evidenceMode==='documents'?'id':'document';$$('[data-evidence-mode]').forEach(el=>el.classList.toggle('active',el===target));renderEvidence();}
@@ -445,12 +496,25 @@ document.addEventListener('click',async event=>{
   if(target.dataset.sortContext==='result'){state.resultDirection=state.resultSort===target.dataset.sort&&state.resultDirection==='asc'?'desc':'asc';state.resultSort=target.dataset.sort;state.resultOffset=0;renderResults();}
   if(target.id==='save-document-notes'){try{state.notes[state.inspector]=$('#document-notes').value;await saveNotes();toast('Document notes saved.');}catch(error){toast(error.message,true);}}
 });
-$('#global-search').addEventListener('input',debounce(()=>{state.evidenceMode='documents';state.evidenceOffset=0;$('#evidence-search').value=$('#global-search').value;$$('[data-evidence-mode]').forEach(el=>el.classList.toggle('active',el.dataset.evidenceMode==='documents'));showView('evidence');}));
-$('#evidence-search').addEventListener('input',debounce(()=>{state.evidenceOffset=0;renderEvidence();}));
+function searchFromGlobal() {state.evidenceMode='documents';state.evidenceOffset=0;$('#evidence-search').value=$('#global-search').value;$$('[data-evidence-mode]').forEach(el=>el.classList.toggle('active',el.dataset.evidenceMode==='documents'));showView('evidence');}
+const updateGlobalSearch=debounce(searchFromGlobal),updateEvidenceSearch=debounce(()=>{state.evidenceOffset=0;renderEvidence();});
+$('#global-search').addEventListener('input',()=>{updateEvidenceSearch.cancel();updateGlobalSearch();queueDocumentSearch($('#global-search').value);});
+$('#evidence-search').addEventListener('input',()=>{updateGlobalSearch.cancel();updateEvidenceSearch();queueDocumentSearch($('#evidence-search').value,state.evidenceMode==='documents');});
+['#global-search','#evidence-search'].forEach(selector=>{
+  $(selector).addEventListener('keydown',event=>{
+    if(event.key!=='Enter'||event.isComposing)return;
+    event.preventDefault();updateGlobalSearch.cancel();updateEvidenceSearch.cancel();cancelPendingDocumentSearch();
+    if(selector==='#global-search')searchFromGlobal();else{state.evidenceOffset=0;renderEvidence();}
+    if(selector==='#global-search'||state.evidenceMode==='documents')rememberDocumentSearch(event.target.value);
+  });
+  $(selector).addEventListener('blur',event=>{if(!event.relatedTarget?.closest('#evidence-search-history'))flushPendingDocumentSearch();});
+});
+window.addEventListener('pagehide',flushPendingDocumentSearch);
+window.addEventListener('storage',event=>{if(event.key===documentSearchStorageKey||event.key===null){documentSearches=loadDocumentSearches(documentSearches);renderDocumentSearchHistory();}});
 ['#evidence-tool','#evidence-type'].forEach(id=>$(id).addEventListener('change',()=>{state.evidenceOffset=0;renderEvidence();}));
 $('#sparse-threshold').addEventListener('input',renderMatrix);
 $('#export-matrix').addEventListener('click',()=>{if(!state.data)return;const rows=matrixRows();download('tool-prefix-matrix.csv',csv(['tool','producer','exemplars',...types],rows),'text/csv');});
-$('#export-evidence').addEventListener('click',()=>{if(!state.data)return;if(state.evidenceMode==='resources'){const query=evidenceQuery();query.set('export','csv');location.href='/api/resources?'+query;}else{const q=$('#evidence-search').value.toLowerCase(),tool=$('#evidence-tool').value;const rows=state.data.documents.filter(d=>(!q||[d.id,d.producer,d.creator,...d.tools].join(' ').toLowerCase().includes(q))&&(!tool||d.tools.includes(tool))).map(d=>({...d,tools:d.tools.join('; ')}));download('document-evidence.csv',csv(['id','producer','creator','tools','resources','marks','available'],rows),'text/csv');}});
+$('#export-evidence').addEventListener('click',()=>{if(!state.data)return;if(state.evidenceMode==='resources'){const query=evidenceQuery();query.set('export','csv');location.href='/api/resources?'+query;}else{const q=normalizeDocumentSearch($('#evidence-search').value).toLowerCase(),tool=$('#evidence-tool').value;const rows=state.data.documents.filter(d=>(!q||[d.id,d.producer,d.creator,...d.tools].join(' ').toLowerCase().includes(q))&&(!tool||d.tools.includes(tool))).map(d=>({...d,tools:d.tools.join('; ')}));download('document-evidence.csv',csv(['id','producer','creator','tools','resources','marks','available'],rows),'text/csv');}});
 $('#script-select').addEventListener('change',()=>{$('#script-arguments').value='';updateScriptDescription();});
 $('#generate-script').addEventListener('click',generateScript);
 $('#script-source').addEventListener('input',()=>{editorLines();$('#save-status').textContent='Unsaved changes';});

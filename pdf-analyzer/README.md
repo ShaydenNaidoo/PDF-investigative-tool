@@ -24,7 +24,7 @@ Change the port with `--port` if 8766 is occupied. Restart the server after chan
 
 - **Lab setup:** automatic environment preparation, tool checks, browser PDF/ZIP imports and readiness status.
 - **Dashboard:** real dataset counts, resource-prefix frequencies, tool availability, and assignment examples to inspect.
-- **Evidence explorer:** searchable documents and resource mappings, tool/type filters, sortable columns, pagination, and CSV exports of all matching rows.
+- **Evidence explorer:** searchable documents and resource mappings, tool/type filters, sortable columns, pagination, and CSV exports of all matching rows. Document searches save automatically after a pause in typing, on Enter, or when leaving the search field. **Previous document searches** persists in the same browser across reloads; case and extra spaces do not create duplicates. Click a saved search to reuse it with all tools selected, remove one with **×**, or choose **Clear history**. Resource-mark searches are excluded.
 - **Document inspector:** open the original PDF, search strings and tags, view complete document metadata and XMP, inspect resource subtypes, local resource scopes, original object definitions and decoded streams, numbering gaps, name reuse, existing marks, and document notes.
 - **Tool comparison:** prefixes by resource type for all 15 exemplar tools, with distinct-document counts and a configurable sparse-evidence threshold. Export the matrix to CSV.
 - **Script studio:** run observation scripts, generate investigations from controls, edit/save Bash scripts, inspect live output and errors, stop runs, reopen history, filter result tables, and generate exemplar summaries with tables, interactive bar charts, CSV and SVG exports.

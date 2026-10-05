@@ -60,7 +60,15 @@
       </section>
       <section class="view" id="evidence">
         <div class="section-line"><div><span class="label">FOLLOW THE FINGERPRINT</span><h2>Evidence explorer</h2><p class="muted">Open a PDF to inspect its metadata, local resource scopes and original object references.</p></div><button id="export-evidence" class="secondary"><svg><use href="#i-download"/></svg>Export CSV</button></div>
-        <article class="panel"><div class="toolbar"><div class="segmented"><button class="active" data-evidence-mode="documents">Documents</button><button data-evidence-mode="resources">Resource marks</button></div><label class="search"><svg><use href="#i-search"/></svg><input id="evidence-search" placeholder="Search IDs, producers or marks…" aria-label="Search evidence"></label><select id="evidence-tool" aria-label="Filter exemplar tool"><option value="">All tools</option></select><select id="evidence-type" aria-label="Filter resource type" class="hidden"><option value="">All resource types</option></select></div><div id="evidence-context" class="table-caption"></div><div id="evidence-table"></div><div id="evidence-pagination" class="pagination"></div></article>
+        <article class="panel">
+          <div class="toolbar"><div class="segmented"><button class="active" data-evidence-mode="documents">Documents</button><button data-evidence-mode="resources">Resource marks</button></div><label class="search"><svg><use href="#i-search"/></svg><input id="evidence-search" placeholder="Search IDs, producers or marks…" aria-label="Search evidence"></label><select id="evidence-tool" aria-label="Filter exemplar tool"><option value="">All tools</option></select><select id="evidence-type" aria-label="Filter resource type" class="hidden"><option value="">All resource types</option></select></div>
+          <section id="evidence-search-history" class="document-search-history" aria-labelledby="document-search-history-title">
+            <div class="document-search-history-head"><span id="document-search-history-title" class="label">PREVIOUS DOCUMENT SEARCHES</span><button id="clear-document-searches" class="text-button" disabled>Clear history</button></div>
+            <p id="document-search-history-hint" class="muted small"></p>
+            <ul id="document-search-history-list" class="document-search-history-list" aria-label="Saved document searches"></ul>
+          </section>
+          <div id="evidence-context" class="table-caption"></div><div id="evidence-table"></div><div id="evidence-pagination" class="pagination"></div>
+        </article>
       </section>
       <section class="view" id="comparison">
         <div class="section-line"><div><span class="label">ASSIGNMENT / PART 01</span><h2>Tool signature comparison</h2><p class="muted">Observed prefixes by resource type. Counts show distinct matching exemplars.</p></div><button id="export-matrix" class="secondary"><svg><use href="#i-download"/></svg>Export matrix</button></div>
