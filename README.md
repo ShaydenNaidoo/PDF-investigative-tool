@@ -1,6 +1,6 @@
 # PDF Analyzer · Vice Lab
 
-A local GUI for COS 721 PDF toolmark investigations, with synthwave interface, neon effects, script editing, live investigation output, searchable evidence tables, and CSV exports.
+A local GUI for COS 721 PDF toolmark investigations, with a synthwave interface, neon effects, script editing, live investigation output, searchable evidence tables, and CSV exports.
 
 ![PDF Analyzer dashboard](pdf-analyzer/preview-desktop.png)
 
