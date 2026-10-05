@@ -1,6 +1,6 @@
 # PDF Analyzer · Vice Lab
 
-A local GUI for COS 721 PDF toolmark investigations, with a Vice City inspired synthwave interface, neon effects, script editing, live investigation output, searchable evidence tables, and CSV exports.
+A local GUI for COS 721 PDF toolmark investigations, with a synthwave interface, neon effects, script editing, live investigation output, searchable evidence tables, and CSV exports.
 
 Use **Script studio → Investigation results → Generate summary** to summarize a full saved result table across exemplar tools. Compare row counts, distinct PDFs and observed coverage in a table and interactive bar chart; export the summary as CSV or the chart as SVG. See [Summarize a large investigation](pdf-analyzer/README.md#summarize-a-large-investigation).
 
