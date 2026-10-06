@@ -402,7 +402,8 @@ function renderSetup() {
   $('#setup-ready-badge').textContent=data.ready?'READY':'WAITING';$('#setup-ready-badge').className='tag '+(data.ready?'cyan':'');
   $('#setup-workspace-counts').innerHTML=[['PDFs',dataset.pdfs],['Scripts',data.scripts],['Exemplar tools',data.tools]].map(([label,value])=>`<div><b>${number(value)}</b><span>${label}</span></div>`).join('');
   $('#setup-tool-list').innerHTML=Object.entries(data.dependencies).map(([name,ok])=>`<span class="health-item ${ok?'':'missing'}">${ok?'✓':'!'} ${esc(name)}</span>`).join('');
-  $('#setup-storage').textContent=`${data.storage} · ${number(Math.floor(data.freeBytes/1024**3))} GiB free. PDFs, saved scripts, notes and results stay available between lab restarts.`;
+  $('#setup-storage').textContent=`${data.storage} · ${number(Math.floor(data.freeBytes/1024**3))} GiB free. `+(data.storageEphemeral?'Render Free clears uploaded PDFs, saved scripts, notes and results when it sleeps, restarts or redeploys. Download PDF/CSV results and keep a copy of your scripts on your device.':'PDFs, saved scripts, notes and results stay available between lab restarts.');
+  $('#setup-storage').className=data.storageEphemeral?'inspection-notice':'muted small';
   $('#setup-native-note').classList.toggle('hidden',data.container);
   $('#setup-next-hint').textContent=data.ready?'Your lab is ready. Start with a small investigation, then explore your PDFs and compare exemplars.':'Add your PDFs and check the tools above to start your first investigation.';
   const blocked=state.uploadBusy||importBusy(data.import.status)||data.activeInvestigation;

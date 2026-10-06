@@ -1,6 +1,6 @@
 # PDF Analyzer on GitHub Pages and Render
 
-GitHub Pages hosts the interface. Render runs the Docker lab with Python, Bash, qpdf, Poppler, scripts and persistent storage. Connect each device to the same Render lab to share PDFs, saved scripts, results and notes.
+GitHub Pages hosts the interface. Render Free runs the Docker lab with Python, Bash, qpdf, Poppler and scripts. Connect each device to the same active Render lab to share PDFs, saved scripts, results and notes during a session. Remote storage is temporary; keep originals and scripts on your device and download results as you work.
 
 The repository includes `.github/workflows/pages.yml` and `render.yaml`. These prepare deployment; the website is live only after GitHub and Render report successful deployments.
 
@@ -15,12 +15,12 @@ Only HTML, CSS, JavaScript, the scene and licensed PDF assets are included. The 
 
 GitHub Pages cannot execute Python or Bash. The interface therefore asks for a Render lab URL and access key until connected. [GitHub Pages documentation](https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages)
 
-## Deploy the persistent backend
+## Deploy the free backend
 
 1. Sign in to Render and connect this GitHub repository.
 2. Choose **New → Blueprint**, select this repository and `main`, and use `render.yaml`.
-3. Review the quoted price before creating resources. The blueprint requests one **Starter** Docker web service and a **10 GB disk** at `/workspace`. This is a paid configuration. Render’s free web service cannot attach a persistent disk and loses local files when it restarts or redeploys. [Pricing](https://render.com/pricing), [persistent disks](https://render.com/docs/disks), [free service limitations](https://render.com/docs/free)
-4. Confirm the deployment. The Docker build installs the lab tools. A new disk receives the baseline observation files; the server and scripts run as the unprivileged `lab` user.
+3. Check that the service uses the **Free** instance type. The blueprint requests one Docker web service, with no persistent disk or database. Free services sleep after 15 minutes without requests and take about a minute to wake. Uploaded files and workspace changes are lost on sleep, restart or redeploy. [Free service limitations](https://render.com/docs/free)
+4. Confirm the deployment. The Docker build installs the lab tools. Each fresh instance receives the baseline observation files; the server and scripts run as the unprivileged `lab` user. Upload your PDFs through the app.
 5. Wait for the service to be **Live** and healthy. Copy its actual HTTPS URL from Render. The assigned hostname may include a suffix; do not assume an example hostname is yours.
 6. In the service’s **Environment** settings, copy the generated `PDF_LAB_ACCESS_KEY` directly into the app’s connection form. Keep it out of GitHub, URLs and chat messages.
 
@@ -31,7 +31,7 @@ GitHub Pages cannot execute Python or Bash. The interface therefore asks for a R
 | `PDF_LAB_ALLOWED_ORIGINS=https://shaydennaidoo.github.io` | Permit authenticated requests from Pages. An origin has no repository path or trailing slash. |
 | `RENDER_EXTERNAL_HOSTNAME` | Render supplies its assigned hostname; the backend permits it automatically. |
 | `PORT` | Render supplies the HTTP port; the server and health check respect it. |
-| `LAB_RUNTIME_USER=root` | Initialize a freshly mounted disk, then immediately drop to `lab` before starting the server. Local Docker defaults to `lab`. |
+| `PDF_LAB_EPHEMERAL=1` | Show the temporary-storage notice in Lab setup. This does not provide backups. |
 
 You can also open the Render URL directly and connect with the same key. For another hostname, configure `PDF_LAB_ALLOWED_HOSTS` as an explicit comma-separated list. For another interface origin, extend `PDF_LAB_ALLOWED_ORIGINS`. Wildcard hosts and origins are rejected.
 
@@ -43,7 +43,7 @@ This is a private single-owner lab. Anyone with its key can read the workspace a
 2. Choose **Connect lab**, enter the actual Render HTTPS URL and access key, and select **Connect to lab**.
 3. Open **Lab setup** and import the assignment PDFs or ZIP. Your existing local corpus and runs are separate and are not automatically uploaded.
 4. Use **Script studio** to build and run scripts, **Evidence explorer** to inspect PDFs, and **Run history** to reopen saved results.
-5. On another device, connect to the same Render URL. Saved lab work is shared through that server; document search history stays specific to each browser.
+5. On another device, connect to the same Render URL. Lab work is shared while that instance remains active; document search history stays specific to each browser. After a sleep or restart, import your PDFs and save your scripts again.
 
 The browser remembers the URL. A new browser session may require the key again. **Connect lab → Disconnect** removes the connection from that browser without deleting remote evidence.
 
@@ -60,13 +60,23 @@ The browser remembers the URL. A new browser session may require the key again. 
 
 PDFs download directly without a print dialog or external CDN. Reports use A4 landscape pages, readable tables, embedded fonts, generation timestamps and page numbers. Detailed large tables can create long PDFs; summary exports provide a compact report. Progress appears during generation.
 
-## Update and preserve evidence
+## Download and preserve evidence
 
 Automatic backend deployment is disabled so a push does not interrupt an investigation. When the lab is idle, choose **Render → Manual Deploy** for the new commit. Pages publishing remains automatic; deploy the matching backend when an update changes the API.
 
-The mounted disk preserves `/workspace/dataset`, `/workspace/environment/observations` and `/workspace/home`, including scripts, notes and runs. New seed files do not overwrite saved work. Only files under the disk persist. Monitor disk usage and backups in Render; deleting a service or disk is separate from deploying a new commit.
+Render Free has no persistent disk. `/workspace/dataset`, `/workspace/environment/observations` and `/workspace/home` are temporary, including uploaded PDFs, custom scripts, notes and runs. Baseline observation files bundled in the image are restored when a new instance starts; your added work is not. Keeping the browser open is not a backup, and Render may restart free instances at any time.
 
-The simplest migration is to import the originals into the remote GUI and save your scripts there. To migrate a complete local workspace backup, stop the lab first and preserve its directory layout and ownership. Never commit that backup to the public repository.
+For each investigation:
+
+1. Keep the original PDFs/assignment ZIP and the script source on your device.
+2. Import the originals and paste/save your script in the remote GUI.
+3. Run the investigation, then download its result tables as CSV and its complete run or summary as PDF.
+4. Export notebook/document notes as PDF and retain editable notes separately.
+5. Confirm that the downloads are saved on your device before leaving. These downloads survive a server reset; the app does not automatically restore them into Run history.
+
+Local Docker still uses its persistent volume. Your local lab is separate from Render and remains an option for larger investigations or long-term workspace storage. Never commit a workspace backup to the public repository.
+
+Render includes 750 free instance hours per workspace each month, shared by free web services. Bandwidth and build usage also have limits; check the dashboard's usage and spending settings. A Free instance does not guarantee unlimited free usage. [Render's usage limits](https://render.com/docs/free)
 
 ## Troubleshooting
 
@@ -76,8 +86,10 @@ The simplest migration is to import the originals into the remote GUI and save y
 | Connection fails | Use the actual Render HTTPS base URL and wait for the service to be Live. |
 | Key requested again | Enter the current `PDF_LAB_ACCESS_KEY`; it is not permanently saved in the browser. |
 | Cross-origin request fails | Allow `https://shaydennaidoo.github.io` exactly, without the repository path. |
-| Startup fails | Check the generated key, Docker runtime, `PORT`, disk mount and environment settings. |
+| Startup fails | Check the generated key, Docker runtime, `PORT` and environment settings. |
 | PDFs missing remotely | Import them into this lab; local data is a separate workspace. |
+| Uploaded PDFs, scripts or runs disappeared | Free storage resets on sleep, restart and redeploy. Reimport originals and recreate scripts from your device copies; use downloaded PDF/CSV files for previous evidence. |
+| First connection takes about a minute | The free service may be waking. Wait for Live status and retry connecting. |
 | PDF export reports an old server | Deploy the matching backend revision. Local users should rebuild Docker and refresh. |
 | Investigation exceeds memory | Increase the service’s compute plan or investigate smaller sets. |
 

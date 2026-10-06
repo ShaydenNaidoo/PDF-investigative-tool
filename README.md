@@ -2,7 +2,7 @@
 
 A local GUI for COS 721 PDF toolmark investigations, with a synthwave interface, neon effects, script editing, live investigation output, searchable evidence tables, and CSV exports.
 
-For access from other devices, see [GitHub Pages + Render deployment](DEPLOYMENT.md). Included deployment files prepare a protected Render backend with persistent storage and a Pages interface. PDF buttons export evidence, comparisons, result tables, summaries, document views, notes and complete runs. Publishing requires GitHub/Render access; review the paid Render disk configuration before creating it.
+For access from other devices, see [GitHub Pages + Render deployment](DEPLOYMENT.md). Included deployment files prepare a protected Render Free backend with temporary storage and a Pages interface. PDF buttons export evidence, comparisons, result tables, summaries, document views, notes and complete runs. Publishing requires GitHub/Render access. Render Free clears uploaded PDFs, saved scripts, notes and results on sleep, restart or redeploy; download your results and retain originals and scripts on your device.
 
 Use **Script studio → Investigation results → Generate summary** to summarize a full saved result table across exemplar tools. Compare row counts, distinct PDFs and observed coverage in a table and interactive bar chart; export the summary as CSV or the chart as SVG. See [Summarize a large investigation](pdf-analyzer/README.md#summarize-a-large-investigation).
 

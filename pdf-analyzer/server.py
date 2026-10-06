@@ -73,6 +73,7 @@ def importing():
 
 
 def setup_status():
+    ephemeral = os.environ.get('PDF_LAB_EPHEMERAL') == '1'
     with LOCK:
         state = dict(IMPORT_STATE)
         active = any(j['status'] in ('queued', 'running') for j in JOBS.values())
@@ -86,7 +87,8 @@ def setup_status():
             'dependencies': dependencies, 'dataset': {'pdfs': len(index), 'available': available,
                 'expected': len(expected), 'missing': len(expected - set(index))},
             'scripts': len(catalog()), 'tools': len(list((OBS / 'tools').glob('pr*'))),
-            'storage': 'Persistent Render disk' if os.environ.get('RENDER') == 'true' else 'Persistent Docker volume' if os.environ.get('PDF_LAB_CONTAINER') == '1' else 'Local project storage',
+            'storage': 'Temporary Render storage' if ephemeral else 'Persistent Render disk' if os.environ.get('RENDER') == 'true' else 'Persistent Docker volume' if os.environ.get('PDF_LAB_CONTAINER') == '1' else 'Local project storage',
+            'storageEphemeral': ephemeral,
             'freeBytes': shutil.disk_usage(DATASET).free if DATASET.is_dir() else 0,
             'import': state, 'canImport': can_import,
             'activeInvestigation': active, 'maxUploadBytes': lab_setup.MAX_UPLOAD_BYTES}

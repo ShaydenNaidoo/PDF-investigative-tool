@@ -1,23 +1,19 @@
-# Paid service + disk: review Render's quoted price before creating the Blueprint.
+# Free service: workspace changes are lost on sleep, restart or redeploy.
 services:
   - type: web
     name: pdf-investigative-lab
     runtime: docker
-    plan: starter
+    plan: free
     region: frankfurt
     branch: main
     dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /api/health
     autoDeployTrigger: "off"
-    disk:
-      name: pdf-lab-data
-      mountPath: /workspace
-      sizeGB: 10
     envVars:
-      - key: LAB_RUNTIME_USER
-        value: root
       - key: PDF_LAB_REMOTE
+        value: "1"
+      - key: PDF_LAB_EPHEMERAL
         value: "1"
       - key: PDF_LAB_ACCESS_KEY
         generateValue: true
