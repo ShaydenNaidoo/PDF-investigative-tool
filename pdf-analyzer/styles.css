@@ -42,3 +42,14 @@ body::before{content:'';position:fixed;inset:-25%;pointer-events:none;background
 .document-search-chip button:hover{background:#ff79b914;color:var(--pink)}
 .document-search-chip button:focus-visible{outline:2px solid var(--cyan);outline-offset:-2px;background:#75dfdd0d;color:var(--cyan)}
 @media(max-width:650px){.document-search-history{margin:0 14px 14px;padding:12px}.document-search-history-head .label{font-size:8px;letter-spacing:1px}.document-search-history-list{gap:6px}.document-search-chip button{font-size:10px}}
+
+/* PDF reports and remote lab connection. */
+.section-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.lab-connection-dialog{max-width:560px;width:calc(100% - 30px)}
+.lab-connection-dialog form{padding:0 24px 24px}
+.lab-connection-dialog form>p{margin:0 0 20px;line-height:1.8}
+.lab-connection-dialog .section-actions{margin-bottom:18px}
+#lab-connect-status{font-size:12px;color:var(--cyan);overflow-wrap:anywhere}
+.pdf-export-progress{position:fixed;bottom:24px;right:24px;max-width:calc(100% - 48px);padding:14px 18px;border:1px solid #75dfdd70;border-radius:7px;box-shadow:0 0 24px #75dfdd18;background:#151827;color:var(--cyan);font-size:12px;z-index:1000}
+.inspector-actions{flex-wrap:wrap}
+@media(max-width:650px){.section-actions{gap:7px}.section-actions .secondary{font-size:10px;padding:8px 10px}.top-actions{gap:8px}.top-actions #connect-lab{padding:7px;font-size:9px}.top-actions .global-search{max-width:110px}.lab-connection-dialog form{padding:0 18px 20px}.pdf-export-progress{bottom:15px;right:15px;max-width:calc(100% - 30px);font-size:11px}}

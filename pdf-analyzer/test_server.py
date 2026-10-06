@@ -257,6 +257,8 @@ class LabTests(unittest.TestCase):
                 self.assertEqual(status, 200)
                 self.assertEqual(data['total'], 3)
                 self.assertEqual(len(data['rows']), 1)
+                _, complete = self.request(url+'&export=json')
+                self.assertEqual(len(complete['rows']), 3)
                 self.assertEqual(data['counts']['sourceRows'], 122)
                 self.assertEqual(data['overview'][0]['rows'], 121)
                 self.assertEqual(data['overview'][0]['documents'], 1)
@@ -281,7 +283,7 @@ class LabTests(unittest.TestCase):
     def test_health_identifies_summary_support_and_unknown_run_views_fail(self):
         status, health = self.request('/api/health')
         self.assertEqual(status, 200)
-        self.assertEqual(health['version'], 4)
+        self.assertEqual(health['version'], server.API_VERSION)
         self.assertIn('result-summaries', health['capabilities'])
         self.assertIn('lab-setup', health['capabilities'])
         identifier = 'unknown-view-fixture'
@@ -416,6 +418,69 @@ class LabTests(unittest.TestCase):
         self.assertEqual(self.request('/api/run', {'script':'scan_resources.sh'})[0], 400)
         self.assertEqual(self.request('/api/run', {'script':'test_part1.sh', 'arguments':'DEMO1; touch /tmp/nope'})[0], 400)
         self.assertEqual(self.request('/server.py')[0], 404)
+
+    def test_remote_access_key_protects_read_write_and_original_files(self):
+        key = 'remote-fixture-key-' + 'x' * 32
+        with patch.object(server, 'REMOTE', True), patch.object(server, 'ACCESS_KEY', key):
+            for path in ('/api/dashboard', '/api/setup', '/api/jobs', '/api/resources',
+                         '/api/documents/DEMO1/pdf', '/api/documents/DEMO1/metadata'):
+                self.assertEqual(self.request(path)[0], 401, path)
+                self.assertEqual(self.request(path, headers={'Authorization':'Bearer incorrect'})[0], 401, path)
+                self.assertEqual(self.request(path, headers={'Authorization':'Bearer '+key})[0], 200, path)
+            self.assertEqual(self.request('/api/health')[0], 200)
+            self.assertEqual(self.request('/api/scripts', {'name':'blocked','source':'echo no'})[0], 401)
+            self.assertFalse((server.SCRIPTS/'blocked.sh').exists())
+            self.assertEqual(self.request('/api/scripts', {'name':'../invalid','source':'echo no'}, headers={'Authorization':'Bearer '+key})[0], 400)
+            self.assertEqual(self.request('/api/scripts', {'name':'blocked','source':'echo no'}, token=False, headers={'Authorization':'Bearer '+key})[0], 403)
+
+    def test_remote_cors_allows_pages_and_rejects_other_origins_and_hosts(self):
+        origin = 'https://shaydennaidoo.github.io'
+        key = 'remote-fixture-key-' + 'x' * 32
+        with patch.object(server, 'REMOTE', True), patch.object(server, 'ACCESS_KEY', key), patch.object(server, 'ALLOWED_ORIGINS', {origin}), patch.object(server, 'ALLOWED_HOSTS', {'localhost','127.0.0.1','lab.onrender.com'}):
+            for method, request_origin, expected in [('OPTIONS',origin,204),('OPTIONS','https://other.example',403),('GET',origin,200),('GET','https://other.example',403)]:
+                connection = http.client.HTTPConnection('127.0.0.1', self.http.server_port)
+                connection.request(method, '/api/dashboard', headers={'Host':'lab.onrender.com','Origin':request_origin,'Authorization':'Bearer '+key})
+                response = connection.getresponse()
+                self.assertEqual(response.status, expected)
+                self.assertEqual(response.getheader('Access-Control-Allow-Origin'), origin if expected in (200,204) else None)
+                if method == 'OPTIONS' and expected == 204:
+                    self.assertIn('Authorization', response.getheader('Access-Control-Allow-Headers'))
+                response.read();connection.close()
+            self.assertEqual(self.request('/api/dashboard', headers={'Host':'evil.example','Authorization':'Bearer '+key})[0], 403)
+            self.assertEqual(self.request('/api/scripts', {'name':'../invalid','source':'echo no'}, headers={'Origin':origin,'Authorization':'Bearer '+key})[0], 400)
+            self.assertEqual(self.request('/api/scripts', {'name':'blocked','source':'echo no'}, headers={'Origin':'https://other.example','Authorization':'Bearer '+key})[0], 403)
+
+    def test_complete_json_exports_keep_all_rows_and_unmodified_values(self):
+        _, resources = self.request('/api/resources?limit=1&offset=1&export=json')
+        self.assertEqual(len(resources['rows']), 2)
+        _, strings = self.request('/api/documents/DEMO1/strings?mode=objects&tag=%2FF3&limit=1&offset=1&export=json')
+        self.assertEqual(len(strings['rows']), 2)
+        with tempfile.TemporaryDirectory() as directory:
+            identifier = 'pdf-export-fixture'
+            path = Path(directory)
+            path.joinpath('results.tsv').write_text('document\tvalue\n'+''.join(f'DEMO1\t-{i}\n' for i in range(122)))
+            output = 'FIRST LINE\n'+'evidence\n'*15000+'LAST LINE\n'
+            path.joinpath('stdout.log').write_text(output)
+            path.joinpath('stderr.log').write_text('a warning\n')
+            server.JOBS[identifier] = {'id':identifier,'directory':directory,'tables':[{'name':'results.tsv','rows':122}]}
+            try:
+                _, result = self.request('/api/jobs/'+identifier+'/table?name=results.tsv&limit=1&offset=100&export=json')
+                self.assertEqual(len(result['rows']), 122)
+                self.assertEqual(result['rows'][-1]['value'], '-121')
+                _, filtered = self.request('/api/jobs/'+identifier+'/table?name=results.tsv&q=-121&export=json')
+                self.assertEqual(len(filtered['rows']), 1)
+                _, report = self.request('/api/jobs/'+identifier+'/report')
+                self.assertEqual(report['stdout'], output)
+                self.assertEqual(report['stderr'], 'a warning\n')
+                self.assertNotIn('directory', report)
+            finally:
+                server.JOBS.pop(identifier)
+
+    def test_remote_startup_fails_closed_without_a_strong_access_key(self):
+        env = {**os.environ, 'PDF_LAB_REMOTE':'1', 'PDF_LAB_ACCESS_KEY':'short'}
+        result = subprocess.run(['python3',str(Path(server.__file__))],env=env,capture_output=True,text=True,timeout=5)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('at least 32 characters', result.stderr)
 
     def test_serial_execution_and_cancel(self):
         _, saved = self.request('/api/scripts', {'name':'cancellation-check', 'source':'sleep 10\n'})

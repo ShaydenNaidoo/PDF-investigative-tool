@@ -24,8 +24,10 @@ ENV PYTHONUNBUFFERED=1 \
     PDF_ANALYZER_HOME=/app/pdf-analyzer \
     HOME=/workspace/home
 
-USER lab
+ARG LAB_RUNTIME_USER=lab
+USER ${LAB_RUNTIME_USER}
 EXPOSE 8766
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=4 \
-    CMD python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8766/api/health', timeout=3).read()"
-CMD ["python3", "pdf-analyzer/server.py", "--host", "0.0.0.0", "--port", "8766"]
+    CMD python3 -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('PORT', '8766') + '/api/health', timeout=3).read()"
+ENTRYPOINT ["python3", "pdf-analyzer/container_entrypoint.py"]
+CMD ["--host", "0.0.0.0"]

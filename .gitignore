@@ -36,3 +36,4 @@ venv/
 
 # Optional local Docker workspace backup
 /lab-backup/
+/.pages-build/

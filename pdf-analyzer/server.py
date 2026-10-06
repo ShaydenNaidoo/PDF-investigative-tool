@@ -26,7 +26,7 @@ import inspection
 import summaries
 import lab_setup
 
-API_VERSION = 4
+API_VERSION = 5
 
 ROOT, OBS, DATASET = lab.ROOT, lab.OBS, lab.DATASET
 STATIC = Path(__file__).resolve().parent
@@ -34,6 +34,12 @@ RESULTS = OBS / 'part1-results'
 SCRIPTS = OBS / 'gui-scripts'
 RUNS = OBS / 'gui-runs'
 TOKEN = secrets.token_urlsafe(32)
+REMOTE = os.environ.get('PDF_LAB_REMOTE') == '1' or os.environ.get('RENDER') == 'true'
+ACCESS_KEY = os.environ.get('PDF_LAB_ACCESS_KEY', '')
+ALLOWED_HOSTS = {'localhost', '127.0.0.1'} | {x.strip().lower() for x in os.environ.get('PDF_LAB_ALLOWED_HOSTS', '').split(',') if x.strip()}
+if os.environ.get('RENDER_EXTERNAL_HOSTNAME'):
+    ALLOWED_HOSTS.add(os.environ['RENDER_EXTERNAL_HOSTNAME'].lower())
+ALLOWED_ORIGINS = {x.strip().rstrip('/') for x in os.environ.get('PDF_LAB_ALLOWED_ORIGINS', '').split(',') if x.strip()}
 LOCK = threading.RLock()
 JOBS, PROCESSES, CACHE = {}, {}, {}
 VIEW_CACHE = OrderedDict()
@@ -80,7 +86,7 @@ def setup_status():
             'dependencies': dependencies, 'dataset': {'pdfs': len(index), 'available': available,
                 'expected': len(expected), 'missing': len(expected - set(index))},
             'scripts': len(catalog()), 'tools': len(list((OBS / 'tools').glob('pr*'))),
-            'storage': 'Persistent Docker volume' if os.environ.get('PDF_LAB_CONTAINER') == '1' else 'Local project storage',
+            'storage': 'Persistent Render disk' if os.environ.get('RENDER') == 'true' else 'Persistent Docker volume' if os.environ.get('PDF_LAB_CONTAINER') == '1' else 'Local project storage',
             'freeBytes': shutil.disk_usage(DATASET).free if DATASET.is_dir() else 0,
             'import': state, 'canImport': can_import,
             'activeInvestigation': active, 'maxUploadBytes': lab_setup.MAX_UPLOAD_BYTES}
@@ -436,24 +442,57 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
         self.send_header('Referrer-Policy', 'same-origin')
+        origin = self.headers.get('Origin')
+        if origin and self.valid_origin(origin):
+            self.send_header('Access-Control-Allow-Origin', origin)
+            self.send_header('Vary', 'Origin')
+            self.send_header('Access-Control-Expose-Headers', 'Content-Disposition')
         if filename:
             self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
         self.end_headers()
         self.wfile.write(body)
 
     def valid_host(self):
-        host = self.headers.get('Host', '').split(':')[0]
-        return host in ('127.0.0.1', 'localhost')
+        host = urllib.parse.urlparse('//' + self.headers.get('Host', '')).hostname
+        return host in (ALLOWED_HOSTS if REMOTE else {'127.0.0.1', 'localhost'})
+
+    def valid_origin(self, origin):
+        scheme = 'https' if REMOTE and self.headers.get('X-Forwarded-Proto') == 'https' else 'http'
+        return origin == scheme + '://' + self.headers.get('Host', '') or (REMOTE and origin in ALLOWED_ORIGINS)
+
+    def authorized(self):
+        if not REMOTE:
+            return True
+        header = self.headers.get('Authorization', '')
+        return bool(ACCESS_KEY) and secrets.compare_digest(header, 'Bearer ' + ACCESS_KEY)
+
+    def do_OPTIONS(self):
+        origin = self.headers.get('Origin', '')
+        if not self.valid_host() or not self.valid_origin(origin):
+            return self.json({'error': 'Origin is not allowed'}, 403)
+        self.send_response(204)
+        self.send_header('Access-Control-Allow-Origin', origin)
+        self.send_header('Vary', 'Origin')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Lab-Token')
+        self.send_header('Access-Control-Max-Age', '600')
+        self.send_header('Content-Length', '0')
+        self.end_headers()
 
     def do_GET(self):
         if not self.valid_host():
             return self.json({'error': 'Local host required'}, 403)
         parsed = urllib.parse.urlparse(self.path)
         path, query = parsed.path, urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+        if path.startswith('/api/') and path != '/api/health':
+            if not self.authorized():
+                return self.json({'error': 'Enter your lab access key to connect.'}, 401)
+            if REMOTE and self.headers.get('Origin') and not self.valid_origin(self.headers['Origin']):
+                return self.json({'error': 'Origin is not allowed'}, 403)
         try:
             if path == '/api/health':
                 return self.json({'app': 'pdf-analyzer', 'version': API_VERSION,
-                                  'capabilities': ['pdf-inspection', 'result-summaries', 'lab-setup']})
+                                  'remote': REMOTE, 'capabilities': ['pdf-inspection', 'result-summaries', 'lab-setup']})
             if path == '/api/setup':
                 return self.json(setup_status())
             if path == '/api/dashboard':
@@ -461,6 +500,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/resources':
                 headers = ['document', 'tool', 'resource_type', 'resource_name', 'prefix', 'number', 'object']
                 rows = evidence()['resources']
+                if query.get('export', [''])[0] == 'json':
+                    return self.json({'headers': headers, 'rows': filtered(rows, query)})
                 if query.get('export'):
                     return self.export(headers, filtered(rows, query), 'resource-evidence.csv')
                 return self.json(page_table(headers, rows, query))
@@ -474,12 +515,17 @@ class Handler(BaseHTTPRequestHandler):
                 if not job:
                     return self.json({'error': 'Run not found'}, 404)
                 directory = Path(job['directory'])
+                if len(parts) == 5 and parts[4] == 'report':
+                    return self.json({**job_public(job), 'stdout': read_text(directory / 'stdout.log'),
+                                      'stderr': read_text(directory / 'stderr.log')})
                 if len(parts) > 4 and parts[4] in ('table', 'summary'):
                     name = query.get('name', ['results.tsv'])[0]
                     if name not in [t['name'] for t in job['tables']]:
                         return self.json({'error': 'Result table not found'}, 404)
                     if parts[4] == 'summary':
                         summary = result_summary(directory / name, query)
+                        if query.get('export', [''])[0] == 'json':
+                            return self.json({**summary, 'source': name, 'job': job['id']})
                         if query.get('export', [''])[0] == 'csv':
                             group_columns = ['group_' + g for g in summary['groups']]
                             columns = ['tool', 'producer', *group_columns, 'rows', 'documents', 'exemplars', 'represented', 'coverage']
@@ -491,6 +537,8 @@ class Handler(BaseHTTPRequestHandler):
                                           'total': len(summary['rows']), 'offset': offset, 'limit': limit,
                                           'source': name, 'job': job['id']})
                     headers, rows = read_table(directory / name)
+                    if query.get('export', [''])[0] == 'json':
+                        return self.json({'headers': headers, 'rows': filtered(rows, query)})
                     if query.get('export'):
                         return self.export(headers, filtered(rows, query), f'{job["id"]}-{Path(name).stem}.csv')
                     return self.json(page_table(headers, rows, query))
@@ -518,6 +566,10 @@ class Handler(BaseHTTPRequestHandler):
                     tag = query.get('tag', [''])[0]
                     matches = inspection.filtered_strings(index, needle, tag, query.get('case', ['0'])[0] == '1')
                     export = query.get('export', [''])[0]
+                    if export == 'json':
+                        return self.json({'headers': ['location', 'reference', 'kind', 'text'], 'rows': matches,
+                                          'source': index['source'], 'truncated': index['truncated'],
+                                          'indexLimit': index['indexLimit'], 'warning': index['warning']})
                     if export == 'csv':
                         return self.export(['location', 'reference', 'kind', 'text'], matches, document + '-' + mode + '-strings.csv')
                     if export == 'txt':
@@ -567,7 +619,11 @@ class Handler(BaseHTTPRequestHandler):
                 if query.get('export'):
                     return self.export(list(detail['resources'][0]) if detail['resources'] else ['document'], detail['resources'], document + '-original-resources.csv')
                 return self.json(detail)
-            files = {'/': 'index.html', '/index.html': 'index.html', '/app.js': 'app.js', '/styles.css': 'styles.css', '/scene.svg': 'scene.svg'}
+            files = {'/': 'index.html', '/index.html': 'index.html', '/app.js': 'app.js', '/hosting.js': 'hosting.js', '/pdf-export.js': 'pdf-export.js', '/styles.css': 'styles.css', '/scene.svg': 'scene.svg'}
+            vendor_files = {'jspdf.umd.min.js', 'jspdf.plugin.autotable.min.js', 'DejaVuSans.ttf', 'DejaVuSans-Bold.ttf'}
+            if path.startswith('/vendor/') and path.removeprefix('/vendor/') in vendor_files:
+                file = STATIC / path.lstrip('/')
+                return self.body(file.read_bytes(), 'font/ttf' if file.suffix == '.ttf' else 'text/javascript; charset=utf-8')
             if path in files:
                 file = STATIC / files[path]
                 types = {'.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml'}
@@ -586,10 +642,12 @@ class Handler(BaseHTTPRequestHandler):
         self.body(output.getvalue().encode('utf-8-sig'), 'text/csv; charset=utf-8', filename=filename)
 
     def do_POST(self):
+        if not self.authorized():
+            return self.json({'error': 'Enter your lab access key to connect.'}, 401)
         if not self.valid_host() or self.headers.get('X-Lab-Token') != TOKEN:
             return self.json({'error': 'Reload the local lab to reconnect.'}, 403)
         origin = self.headers.get('Origin')
-        if origin and origin != 'http://' + self.headers.get('Host', ''):
+        if origin and not self.valid_origin(origin):
             return self.json({'error': 'Same-origin request required'}, 403)
         if urllib.parse.urlparse(self.path).path == '/api/setup/import':
             return self.receive_import()
@@ -691,10 +749,14 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--port', type=int, default=8766)
+    parser.add_argument('--port', type=int, default=int(os.environ.get('PORT', '8766')))
     parser.add_argument('--host', default='127.0.0.1', help='Bind address; Docker uses 0.0.0.0')
     parser.add_argument('--open', action='store_true', help='Open the lab in your browser')
     args = parser.parse_args()
+    if REMOTE and len(ACCESS_KEY) < 32:
+        parser.error('Remote hosting requires PDF_LAB_ACCESS_KEY with at least 32 characters.')
+    if '*' in ALLOWED_HOSTS or '*' in ALLOWED_ORIGINS:
+        parser.error('Configure explicit lab hosts and origins; wildcards are not supported.')
     url = f'http://127.0.0.1:{args.port}'
     try:
         server = ThreadingHTTPServer((args.host, args.port), Handler)

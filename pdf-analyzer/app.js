@@ -16,7 +16,7 @@ let toastTimer;
 function toast(message, error=false) { $('#toast').textContent=message; $('#toast').className=`toast${error?' error':''}`; clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('#toast').classList.add('hidden'),5000); }
 function debounce(fn, delay=220) {let timer;const run=(...args)=>{clearTimeout(timer);timer=setTimeout(()=>fn(...args),delay);};run.cancel=()=>clearTimeout(timer);return run;}
 async function api(path, body, reconnect=true) {
-  const response=await fetch(path, body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-Lab-Token':state.data?.token || ''},body:JSON.stringify(body)});
+  const response=await labRequest(path, body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-Lab-Token':state.data?.token || ''},body:JSON.stringify(body)});
   const result=await response.json();
   if(response.status===403 && body!==undefined && reconnect && result.error==='Reload the local lab to reconnect.') {
     const fresh=await api('/api/dashboard');
@@ -182,6 +182,7 @@ async function startRun() {
 }
 function updateRun(job) {
   state.job=job;$('#run-badge').textContent=job.status.toUpperCase();$('#run-badge').className='tag '+job.status;
+  updatePDFButtons();
   $('#cancel-run').classList.toggle('hidden',!state.running);updateRunAvailability();
   const started=job.startedAt || job.createdAt;const duration=Math.max(0,Math.round(((job.endedAt?new Date(job.endedAt):new Date())-new Date(started))/1000));
   $('#run-meta').textContent=`${job.label} · ${job.id} · ${duration}s${job.exitCode!==null?' · exit '+job.exitCode:''}`;
@@ -211,6 +212,7 @@ function setupResults(job) {
   const tables=job.tables||[];$('#result-select').innerHTML=tables.map(t=>`<option value="${esc(t.name)}">${esc(t.name)} · ${number(t.rows)} rows</option>`).join('');$('#export-results').disabled=!tables.length;
   $('#jump-results').disabled=!tables.length;$('#output-hint').textContent=tables.length?`${number(tables.reduce((sum,t)=>sum+t.rows,0))} result rows saved across ${tables.length} table${tables.length===1?'':'s'}.`:'Run snapshots, logs and tables are saved in observations/gui-runs.';
   state.resultOffset=0;state.resultSort='';$('#result-search').value='';
+  updatePDFButtons();
   if(tables.length)renderResults();else {$('#result-table').innerHTML=`<div class="empty">${job.status==='completed'?'This script produced no table.':'No structured table is available for this run.'}<small>Print tab-separated output, or write a .tsv file to $PDF_RUN_DIR. Build helpers are summarized from their saved files.</small></div>`;$('#result-pagination').innerHTML='';}
 }
 function resultQuery() {return new URLSearchParams({name:$('#result-select').value,q:$('#result-search').value,offset:state.resultOffset,limit:50,sort:state.resultSort,direction:state.resultDirection});}
@@ -228,6 +230,7 @@ function resetSummary() {
   state.summaryActive=false;state.summaryData=null;state.summaryOffset=0;state.resultHeaders=null;state.summaryRequest=(state.summaryRequest||0)+1;
   $('#results-summary').classList.add('hidden');$('#generate-summary').disabled=true;$('#export-summary').disabled=true;$('#export-summary-chart').disabled=true;
   $('#summary-content').classList.add('hidden');$('#summary-status').textContent='';
+  updatePDFButtons();
 }
 function configureSummary(headers) {
   state.resultHeaders=headers;
@@ -251,6 +254,7 @@ async function generateSummary(scroll=false) {
   const id=state.job?.id,name=$('#result-select').value;if(!id||!name||!state.resultHeaders)return;
   state.summaryActive=true;const request=state.summaryRequest=(state.summaryRequest||0)+1;
   $('#results-summary').classList.remove('hidden');$('#summary-status').innerHTML='<span class="spinner"></span> Summarizing the full result table…';$('#summary-content').classList.add('hidden');$('#export-summary').disabled=true;$('#export-summary-chart').disabled=true;
+  updatePDFButtons();
   if(scroll)$('#results-summary').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth',block:'start'});
   const query=summaryQuery();$('#summary-scope').textContent=`${state.job.label} · ${name} · Full saved table${query.get('q')?' · Result search: '+query.get('q'):' · No result search filter'}`;
   try {
@@ -264,6 +268,7 @@ async function generateSummary(scroll=false) {
     $('#summary-table').innerHTML=table(columns,data.rows.map(r=>`<tr>${columns.map(h=>`<td class="${h==='producer'?'summary-producer':h==='breakdown'?'mono summary-breakdown':'mono'}">${h==='tool'?`<button class="text-button" data-summary-tool="${esc(r.toolKey)}">${esc(r.tool)}</button>`:h==='breakdown'?r.values.map((v,i)=>`<span title="${esc(data.groups[i])}">${esc(v)||'<span class="muted-dash">(empty)</span>'}</span>`).join(' · '):h==='coverage'?r.coverage===null?'—':number(r.coverage)+'%':h==='producer'?esc(r[h]):number(r[h])}</td>`).join('')}</tr>`),{labels:{breakdown:data.groups.map(g=>g.replaceAll('_',' ').toUpperCase()).join(' / '),rows:'RESULT ROWS',documents:'DISTINCT PDFs',exemplars:'KNOWN EXEMPLARS',represented:'PDFs IN SOURCE',coverage:'OBSERVED COVERAGE'},empty:'No matching summary groups. Clear the result search or summary filters.'});
     pagination('#summary-pagination',data.total,data.offset,data.limit,'summary');renderSummaryChart();
   }catch(error){if(request!==state.summaryRequest)return;state.summaryData=null;$('#summary-content').classList.add('hidden');$('#export-summary').disabled=true;$('#export-summary-chart').disabled=true;$('#summary-status').textContent=error.message;}
+  finally{updatePDFButtons();}
 }
 function summaryChartSVG(data,metric) {
   const labels={documents:'Distinct PDFs',rows:'Result rows',coverage:'Observed coverage (%)'},rows=data.overview;
@@ -303,6 +308,7 @@ async function inspectDocument(id,tab='resources') {
   const tabs=[['resources','Resources'],['strings','Strings & tags'],['metadata','Metadata'],['numbering','Numbering & reuse'],['marks','Toolmarks'],['notes','Document notes']];
   $('#inspect-body').innerHTML=`<div id="inspect-summary" class="inspect-summary"><span>Original PDF investigation</span><button class="text-button" data-investigate="${esc(id)}">Investigate this PDF ↗</button></div><div class="inspector-tabs" role="tablist" aria-label="PDF inspection views">${tabs.map(([key,label])=>`<button role="tab" aria-selected="false" aria-controls="inspect-${key}" data-inspect-tab="${key}">${label}</button>`).join('')}</div>${tabs.map(([key])=>`<div id="inspect-${key}" class="inspect-pane" role="tabpanel">${key==='strings'?stringsPane():key==='metadata'?metadataPane(id):key==='notes'?`<textarea id="document-notes" class="inspect-note" aria-label="Document notes" placeholder="Hypothesis, evidence and original object references…">${esc(state.notes[id]||'')}</textarea><button class="primary" id="save-document-notes">Save document notes</button>`:'<div class="empty"><span class="spinner"></span>Reading original PDF evidence…</div>'}</div>`).join('')}`;
   if(!$('#inspector').open)$('#inspector').showModal();
+  updatePDFButtons();
   selectInspectorTab(tab);return session;
 }
 function selectInspectorTab(tab) {
@@ -373,7 +379,7 @@ async function inspectObject(ref,decoded=false,targetName='resources') {
     const params=new URLSearchParams({ref,decoded:decoded?'1':'0'}),result=await api(`/api/documents/${id}/object?${params}`);
     if(state.inspectorSession!==session||state.objectRequests[target.id]!==request||!target.isConnected)return;
     params.set('export','txt');
-    target.innerHTML=`<div class="object-preview-heading"><span class="label">${decoded?'DECODED STREAM':'ORIGINAL OBJECT'} ${esc(ref.replace(',',' '))}</span><div><button class="text-button" data-object="${esc(ref)}" data-object-target="${targetName}">Definition</button>${result.stream?`<button class="text-button" data-object="${esc(ref)}" data-decoded="1" data-object-target="${targetName}">Decoded stream</button>`:''}<a class="text-button" href="/api/documents/${id}/object?${params}">Export TXT ↗</a><button class="icon-button" data-close-object="${target.id}" aria-label="Close object preview">✕</button></div></div><div class="inspect-caption object-source">${esc(result.source)} · ${number(result.bytes)} bytes${result.truncated?` · preview limited to ${number(result.limit)} bytes`:''}</div><pre>${esc(result.text)}${result.warning?'\n'+esc(result.warning):''}</pre>`;
+    target.innerHTML=`<div class="object-preview-heading"><span class="label">${decoded?'DECODED STREAM':'ORIGINAL OBJECT'} ${esc(ref.replace(',',' '))}</span><div><button class="text-button" data-object="${esc(ref)}" data-object-target="${targetName}">Definition</button>${result.stream?`<button class="text-button" data-object="${esc(ref)}" data-decoded="1" data-object-target="${targetName}">Decoded stream</button>`:''}<button class="text-button" data-pdf-export="object" data-report-document="${esc(id)}" data-report-object="${esc(ref)}" data-report-decoded="${decoded?'1':'0'}">Export PDF</button><a class="text-button" href="/api/documents/${id}/object?${params}">Export TXT ↗</a><button class="icon-button" data-close-object="${target.id}" aria-label="Close object preview">✕</button></div></div><div class="inspect-caption object-source">${esc(result.source)} · ${number(result.bytes)} bytes${result.truncated?` · preview limited to ${number(result.limit)} bytes`:''}</div><pre>${esc(result.text)}${result.warning?'\n'+esc(result.warning):''}</pre>`;
     target.scrollIntoView({block:'nearest',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
   } catch(error){if(state.inspectorSession===session&&state.objectRequests[target.id]===request)target.innerHTML=`<div class="empty">${esc(error.message)}</div>`;}
 }
@@ -381,8 +387,8 @@ async function saveNotes() {await api('/api/notes',{notes:state.notes});}
 async function refreshData(initial=false) {
   const data=await api('/api/dashboard');state.data=data;
   if(initial){state.notes=data.notes||{};$('#notebook-text').value=state.notes._notebook||'';}
-  $('#offline').classList.add('hidden');$('#connection-text').textContent='Local lab connected';$('#connection-dot').classList.remove('offline');
-  renderDashboard();renderMatrix();renderScripts();if(state.view==='evidence')renderEvidence();
+  $('#offline').classList.add('hidden');$('#connection-text').textContent=labConnection.url?'Remote lab connected':'Lab connected';$('#connection-dot').classList.remove('offline');
+  renderDashboard();renderMatrix();renderScripts();updatePDFButtons();if(state.view==='evidence')renderEvidence();
 }
 function importBusy(status) {return ['uploading','extracting','validating','installing'].includes(status);}
 function renderSetup() {
@@ -416,7 +422,7 @@ async function loadSetup() {
     if((importBusy(data.import.status)||data.activeInvestigation)&&!state.uploadBusy)state.setupTimer=setTimeout(loadSetup,1000);
     if(importBusy(previous)&&data.import.status==='completed'&&!state.uploadBusy)await refreshData();
     return data;
-  }catch(error){$('#setup-tools-status').textContent='Could not check the lab. Restart it with the Start Lab launcher, then check again.';$('#setup-import-message').className='alert';$('#setup-import-message').textContent=error.message;}
+  }catch(error){$('#setup-tools-status').textContent=pagesHosting||labConnection.url?'Could not check the remote lab. Check its readiness in Render and reconnect.':'Could not check the lab. Restart it with the Start Lab launcher, then check again.';$('#setup-import-message').className='alert';$('#setup-import-message').textContent=error.message;}
 }
 function chooseDataset(files) {
   const selected=Array.from(files),invalid=selected.find(f=>!(/\.(pdf|zip)$/i.test(f.name))||f.size===0||f.size>(state.setup?.maxUploadBytes||4*1024**3));
@@ -425,7 +431,7 @@ function chooseDataset(files) {
 }
 function uploadDatasetFile(file,index,total) {
   return new Promise((resolve,reject)=>{
-    const xhr=new XMLHttpRequest();xhr.open('POST','/api/setup/import?filename='+encodeURIComponent(file.name));xhr.setRequestHeader('X-Lab-Token',state.data.token);xhr.setRequestHeader('Content-Type','application/octet-stream');
+    const xhr=new XMLHttpRequest();xhr.open('POST',labURL('/api/setup/import?filename='+encodeURIComponent(file.name)));xhr.setRequestHeader('X-Lab-Token',state.data.token);xhr.setRequestHeader('Content-Type','application/octet-stream');if(labConnection.key)xhr.setRequestHeader('Authorization','Bearer '+labConnection.key);
     xhr.upload.onprogress=event=>{if(event.lengthComputable){const percent=Math.round(event.loaded/event.total*100);$('#dataset-progress').value=percent;$('#dataset-progress-text').textContent=`Uploading ${index+1}/${total}: ${file.name} · ${percent}%`;}};
     xhr.onload=()=>{let result;try{result=JSON.parse(xhr.responseText);}catch{reject(new Error('The upload returned an unexpected response. Restart the lab and try again.'));return;}if(xhr.status>=200&&xhr.status<300)resolve(result);else reject(new Error(result.error||'The upload failed. Try again.'));};
     xhr.onerror=()=>reject(new Error('Connection lost during upload. Reopen the lab and try again.'));xhr.onabort=()=>reject(new Error('Upload cancelled.'));xhr.send(file);
@@ -456,8 +462,9 @@ async function boot() {
   ['#builder-type'].forEach(selector=>$(selector).innerHTML='<option value="">Any resource</option>'+types.map(t=>`<option>${t}</option>`).join(''));
   renderDocumentSearchHistory();
   generateScript();showView(location.hash.slice(1)||'overview');
+  if(pagesHosting&&!labConnection.url){$('#connection-text').textContent='Connect your lab';$('#run-script').disabled=true;openLabConnection('Enter your Render lab URL and access key.');return;}
   try {await refreshData(true);const setup=await loadSetup();if(setup&&!setup.ready)showView('setup');const jobs=await loadHistory();const active=jobs.find(j=>busy(j.status));if(active){state.running=active.id;pollRun(active.id);}else if(jobs.length){const job=await api('/api/jobs/'+jobs[0].id);updateRun(job);setupResults(job);}}
-  catch(error){$('#offline').classList.remove('hidden');$('#offline').textContent='Could not connect to the lab. Start Docker, open the Start Lab launcher, then refresh this page. '+error.message;$('#connection-text').textContent='Lab disconnected';$('#connection-dot').classList.add('offline');$('#run-script').disabled=true;}
+  catch(error){$('#offline').classList.remove('hidden');$('#offline').textContent=(pagesHosting||labConnection.url?'Could not connect to the remote lab. Check its readiness in Render, then use Connect lab to check the URL and access key. ':'Could not connect to the lab. Start Docker, open the Start Lab launcher, then refresh this page. ')+error.message;$('#connection-text').textContent='Lab disconnected';$('#connection-dot').classList.add('offline');$('#run-script').disabled=true;}
 }
 // Delegated controls keep tables interactive after paging and refreshes.
 document.addEventListener('click',async event=>{
@@ -514,7 +521,7 @@ window.addEventListener('storage',event=>{if(event.key===documentSearchStorageKe
 ['#evidence-tool','#evidence-type'].forEach(id=>$(id).addEventListener('change',()=>{state.evidenceOffset=0;renderEvidence();}));
 $('#sparse-threshold').addEventListener('input',renderMatrix);
 $('#export-matrix').addEventListener('click',()=>{if(!state.data)return;const rows=matrixRows();download('tool-prefix-matrix.csv',csv(['tool','producer','exemplars',...types],rows),'text/csv');});
-$('#export-evidence').addEventListener('click',()=>{if(!state.data)return;if(state.evidenceMode==='resources'){const query=evidenceQuery();query.set('export','csv');location.href='/api/resources?'+query;}else{const q=normalizeDocumentSearch($('#evidence-search').value).toLowerCase(),tool=$('#evidence-tool').value;const rows=state.data.documents.filter(d=>(!q||[d.id,d.producer,d.creator,...d.tools].join(' ').toLowerCase().includes(q))&&(!tool||d.tools.includes(tool))).map(d=>({...d,tools:d.tools.join('; ')}));download('document-evidence.csv',csv(['id','producer','creator','tools','resources','marks','available'],rows),'text/csv');}});
+$('#export-evidence').addEventListener('click',async()=>{if(!state.data)return;try{if(state.evidenceMode==='resources'){const query=evidenceQuery();query.set('export','csv');await downloadLabFile('/api/resources?'+query);}else{const q=normalizeDocumentSearch($('#evidence-search').value).toLowerCase(),tool=$('#evidence-tool').value;const rows=state.data.documents.filter(d=>(!q||[d.id,d.producer,d.creator,...d.tools].join(' ').toLowerCase().includes(q))&&(!tool||d.tools.includes(tool))).map(d=>({...d,tools:d.tools.join('; ')}));download('document-evidence.csv',csv(['id','producer','creator','tools','resources','marks','available'],rows),'text/csv');}}catch(error){toast(error.message,true);}});
 $('#script-select').addEventListener('change',()=>{$('#script-arguments').value='';updateScriptDescription();});
 $('#generate-script').addEventListener('click',generateScript);
 $('#script-source').addEventListener('input',()=>{editorLines();$('#save-status').textContent='Unsaved changes';});
@@ -526,13 +533,13 @@ $('#cancel-run').addEventListener('click',async()=>{try{if(state.running){await 
 $('#jump-results').addEventListener('click',()=>$('#investigation-results').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth',block:'start'}));
 $('#result-select').addEventListener('change',()=>{state.resultOffset=0;resetSummary();renderResults();});
 $('#result-search').addEventListener('input',debounce(()=>{state.resultOffset=0;renderResults();if(state.summaryActive){state.summaryOffset=0;generateSummary();}}));
-$('#export-results').addEventListener('click',()=>{if(state.job){const query=resultQuery();query.set('export','csv');location.href=`/api/jobs/${state.job.id}/table?${query}`;}});
+$('#export-results').addEventListener('click',async()=>{if(state.job){try{const query=resultQuery();query.set('export','csv');await downloadLabFile(`/api/jobs/${state.job.id}/table?${query}`);}catch(error){toast(error.message,true);}}});
 $('#generate-summary').addEventListener('click',()=>{state.summaryOffset=0;generateSummary(true);});
 ['#summary-document','#summary-group','#summary-tool','#summary-type'].forEach(id=>$(id).addEventListener('change',()=>{state.summaryOffset=0;generateSummary();}));
 $('#summary-metric').addEventListener('change',renderSummaryChart);
 $('#summary-unassigned').addEventListener('change',renderSummaryChart);
 $('#close-summary').addEventListener('click',()=>{state.summaryActive=false;state.summaryRequest++;$('#results-summary').classList.add('hidden');});
-$('#export-summary').addEventListener('click',()=>{if(!state.summaryData)return;const query=new URLSearchParams(state.summaryExportQuery);query.set('export','csv');location.href=`/api/jobs/${state.summaryData.job}/summary?${query}`;});
+$('#export-summary').addEventListener('click',async()=>{if(!state.summaryData)return;try{const query=new URLSearchParams(state.summaryExportQuery);query.set('export','csv');await downloadLabFile(`/api/jobs/${state.summaryData.job}/summary?${query}`);}catch(error){toast(error.message,true);}});
 $('#export-summary-chart').addEventListener('click',()=>{const svg=$('#summary-chart svg');if(svg&&state.summaryData)download(`${state.summaryData.job}-${state.summaryData.source.replace(/\.[^.]+$/,'')}-${$('#summary-metric').value}-summary.svg`,svg.outerHTML,'image/svg+xml');});
 $('#summary-chart').addEventListener('keydown',event=>{const bar=event.target.closest('[data-summary-tool]');if(bar&&['Enter',' '].includes(event.key)){event.preventDefault();bar.dispatchEvent(new MouseEvent('click',{bubbles:true}));}});
 $('#save-notes').addEventListener('click',async()=>{state.notes._notebook=$('#notebook-text').value;try{await saveNotes();$('#notes-status').textContent='Saved '+new Date().toLocaleTimeString();}catch(error){toast(error.message,true);}});

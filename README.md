@@ -2,6 +2,8 @@
 
 A local GUI for COS 721 PDF toolmark investigations, with a synthwave interface, neon effects, script editing, live investigation output, searchable evidence tables, and CSV exports.
 
+For access from other devices, see [GitHub Pages + Render deployment](DEPLOYMENT.md). Included deployment files prepare a protected Render backend with persistent storage and a Pages interface. PDF buttons export evidence, comparisons, result tables, summaries, document views, notes and complete runs. Publishing requires GitHub/Render access; review the paid Render disk configuration before creating it.
+
 Use **Script studio → Investigation results → Generate summary** to summarize a full saved result table across exemplar tools. Compare row counts, distinct PDFs and observed coverage in a table and interactive bar chart; export the summary as CSV or the chart as SVG. See [Summarize a large investigation](pdf-analyzer/README.md#summarize-a-large-investigation).
 
 Click a PDF to use **Strings & tags** for searchable file strings, decoded dictionaries, exact PDF tags, page text, and stream previews. **Metadata** shows document properties, custom Info fields, trailer identifiers, and XMP, with JSON and CSV exports. See [Look inside a PDF](pdf-analyzer/README.md#look-inside-a-pdf) for a walkthrough.
@@ -71,4 +73,4 @@ The original corpus, assignment briefs, archives, generated results and personal
 python3 -m unittest discover -s pdf-analyzer -v
 ```
 
-The 24 tests use an isolated fixture dataset and check original references, resource scopes, filtering and exports, script execution, cancellation, persistence, result isolation, strings and compressed content, custom metadata/XMP, preservation of the original PDF, full-table exemplar summaries, nested ZIP imports, authenticated uploads, conflict handling, container paths, and preservation of saved lab work.
+The 28 tests use an isolated fixture dataset and check original references, resource scopes, filtering and exports, script execution, cancellation, persistence, result isolation, strings and compressed content, custom metadata/XMP, preservation of the original PDF, full-table exemplar summaries, nested ZIP imports, authenticated uploads, conflict handling, container paths, and preservation of saved lab work.

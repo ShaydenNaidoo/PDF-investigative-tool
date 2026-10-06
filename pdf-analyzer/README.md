@@ -22,6 +22,8 @@ Change the port with `--port` if 8766 is occupied. Restart the server after chan
 
 ## Investigate without terminal commands
 
+**Export PDF** downloads complete matching evidence and result tables, comparisons, summary charts/tables and notebooks. In the document dossier, **Export view PDF** exports the selected investigation view. **Export entire run PDF** includes every saved table and full console logs for a completed run. See [PDF exports and remote deployment](../DEPLOYMENT.md).
+
 - **Lab setup:** automatic environment preparation, tool checks, browser PDF/ZIP imports and readiness status.
 - **Dashboard:** real dataset counts, resource-prefix frequencies, tool availability, and assignment examples to inspect.
 - **Evidence explorer:** searchable documents and resource mappings, tool/type filters, sortable columns, pagination, and CSV exports of all matching rows. Document searches save automatically after a pause in typing, on Enter, or when leaving the search field. **Previous document searches** persists in the same browser across reloads; case and extra spaces do not create duplicates. Click a saved search to reuse it with all tools selected, remove one with **×**, or choose **Clear history**. Resource-mark searches are excluded.

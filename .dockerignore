@@ -6,6 +6,8 @@
 !pdf-analyzer/*.html
 !pdf-analyzer/*.css
 !pdf-analyzer/*.svg
+!pdf-analyzer/vendor/
+!pdf-analyzer/vendor/**
 !pdf-analyzer/examples/
 !pdf-analyzer/examples/*.sh
 !environment_set/
