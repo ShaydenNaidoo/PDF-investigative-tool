@@ -124,6 +124,36 @@ class LabTests(unittest.TestCase):
             time.sleep(.02)
         self.fail('Investigation did not finish')
 
+    def test_drive_transfer_blocks_changes_to_a_snapshot(self):
+        class RestoringDrive:
+            def status(self):
+                return {'enabled': True, 'busy': True, 'status': 'pending', 'message': 'Restoring test backup'}
+        with patch.object(server, 'DRIVE', RestoringDrive()):
+            status, setup = self.request('/api/setup')
+            self.assertEqual(status, 200)
+            self.assertFalse(setup['canImport'])
+            self.assertFalse(setup['ready'])
+            before = server.read_text(self.obs / 'gui-notes.json')
+            for path, payload in [('/api/notes', {'notes': {'_notebook': 'must not save'}}),
+                                  ('/api/scripts', {'name': 'drive-busy-test', 'source': '#!/bin/bash\necho example\n'}),
+                                  ('/api/run', {'script': 'test_part1.sh'}),
+                                  ('/api/setup/import?filename=NEW01.pdf', {'test': 'blocked upload'})]:
+                status, result = self.request(path, payload)
+                self.assertEqual(status, 400, (path, result))
+                self.assertIn('Google Drive', result['error'])
+            self.assertEqual(server.read_text(self.obs / 'gui-notes.json'), before)
+            self.assertFalse((self.obs / 'gui-scripts/drive-busy-test.sh').exists())
+
+    def test_drive_credentials_are_not_passed_to_investigation_scripts(self):
+        source = '#!/bin/bash\nprintf "document\\tvalue\\nDEMO1\\t${PDF_LAB_DRIVE_REFRESH_TOKEN:-not-present}\\n"\n'
+        _, script = self.request('/api/scripts', {'name': 'private-drive-test', 'source': source})
+        with patch.dict(os.environ, {'PDF_LAB_DRIVE_REFRESH_TOKEN': 'private-test-secret'}):
+            _, job = self.request('/api/run', {'script': script['id']})
+            self.wait_run(job['id'])
+        _, report = self.request('/api/jobs/' + job['id'] + '/report')
+        self.assertIn('not-present', report['stdout'])
+        self.assertNotIn('private-test-secret', report['stdout'])
+
     def test_original_objects_and_local_scope_reuse(self):
         rows, warning = lab.resource_rows('DEMO1', self.dataset / 'DEMO1-fixture.pdf')
         f3 = [r for r in rows if r['resource_name'] == '/F3']

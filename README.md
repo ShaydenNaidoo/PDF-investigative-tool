@@ -2,6 +2,8 @@
 
 A local GUI for COS 721 PDF toolmark investigations, with a synthwave interface, neon effects, script editing, live investigation output, searchable evidence tables, and CSV exports.
 
+Optional [Google Drive backup](GOOGLE_DRIVE.md) preserves the whole lab across Render Free restarts after one-time authorization. Lab setup shows backup progress and offers a manual backup button.
+
 For access from other devices, see [GitHub Pages + Render deployment](DEPLOYMENT.md). Included deployment files prepare a protected Render Free backend with temporary storage and a Pages interface. PDF buttons export evidence, comparisons, result tables, summaries, document views, notes and complete runs. Publishing requires GitHub/Render access. Render Free clears uploaded PDFs, saved scripts, notes and results on sleep, restart or redeploy; download your results and retain originals and scripts on your device.
 
 Use **Script studio → Investigation results → Generate summary** to summarize a full saved result table across exemplar tools. Compare row counts, distinct PDFs and observed coverage in a table and interactive bar chart; export the summary as CSV or the chart as SVG. See [Summarize a large investigation](pdf-analyzer/README.md#summarize-a-large-investigation).
@@ -73,4 +75,4 @@ The original corpus, assignment briefs, archives, generated results and personal
 python3 -m unittest discover -s pdf-analyzer -v
 ```
 
-The 28 tests use an isolated fixture dataset and check original references, resource scopes, filtering and exports, script execution, cancellation, persistence, result isolation, strings and compressed content, custom metadata/XMP, preservation of the original PDF, full-table exemplar summaries, nested ZIP imports, authenticated uploads, conflict handling, container paths, and preservation of saved lab work.
+The 36 tests use isolated fixture data and check original references, resource scopes, filtering and exports, script execution, cancellation, persistence, result isolation, strings and compressed content, custom metadata/XMP, preservation of original PDFs, full-table exemplar summaries, nested ZIP imports, authenticated uploads, conflict handling and container paths. Drive checks use real rclone transfers to temporary local storage to verify snapshots, restore, interrupted commits, original-file checksums, credential handling and paused edits during transfers. These six transfer tests require rclone (included in Docker) and skip when it is unavailable; live Google authorization is configured separately.

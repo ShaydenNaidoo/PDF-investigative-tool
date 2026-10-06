@@ -141,6 +141,7 @@ function runBlockReason() {
   if(state.starting)return 'Saving and starting your investigation…';
   if(state.running||state.setup?.activeInvestigation)return 'Wait for the current investigation to finish, or stop it.';
   if(state.uploadBusy||importBusy(state.setup?.import?.status))return 'Wait for your PDF import to finish.';
+  if(state.setup?.drive?.busy)return 'Wait for Google Drive restore or backup to finish in Lab setup.';
   return '';
 }
 function updateRunAvailability() {
@@ -167,6 +168,7 @@ function generateScript() {
 function editorLines() {const count=$('#script-source').value.split('\n').length;$('#editor-lines').textContent=`${count} LINES`;}
 async function saveScript() {
   const result=await api('/api/scripts',{name:$('#script-name').value.trim(),source:$('#script-source').value});
+  await loadSetup();
   state.data.scripts=result.scripts;renderScripts(result.id);$('#save-status').textContent='Saved to observations/gui-scripts';return result.id;
 }
 async function startRun() {
@@ -383,7 +385,7 @@ async function inspectObject(ref,decoded=false,targetName='resources') {
     target.scrollIntoView({block:'nearest',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
   } catch(error){if(state.inspectorSession===session&&state.objectRequests[target.id]===request)target.innerHTML=`<div class="empty">${esc(error.message)}</div>`;}
 }
-async function saveNotes() {await api('/api/notes',{notes:state.notes});}
+async function saveNotes() {await api('/api/notes',{notes:state.notes});await loadSetup();}
 async function refreshData(initial=false) {
   const data=await api('/api/dashboard');state.data=data;
   if(initial){state.notes=data.notes||{};$('#notebook-text').value=state.notes._notebook||'';}
@@ -404,9 +406,14 @@ function renderSetup() {
   $('#setup-tool-list').innerHTML=Object.entries(data.dependencies).map(([name,ok])=>`<span class="health-item ${ok?'':'missing'}">${ok?'✓':'!'} ${esc(name)}</span>`).join('');
   $('#setup-storage').textContent=`${data.storage} · ${number(Math.floor(data.freeBytes/1024**3))} GiB free. `+(data.storageEphemeral?'Render Free clears uploaded PDFs, saved scripts, notes and results when it sleeps, restarts or redeploys. Download PDF/CSV results and keep a copy of your scripts on your device.':'PDFs, saved scripts, notes and results stay available between lab restarts.');
   $('#setup-storage').className=data.storageEphemeral?'inspection-notice':'muted small';
+  const drive=data.drive||{enabled:false,busy:false,message:'Google Drive is not configured.'};
+  $('#setup-drive-status').textContent=drive.message+(drive.dirty?' Changes are waiting for a completed backup.':'')+(drive.lastBackup?' Last completed backup: '+new Date(drive.lastBackup).toLocaleString()+'.':'');
+  $('#setup-drive-badge').textContent=drive.busy?'IN PROGRESS':drive.status==='error'?'NEEDS ATTENTION':drive.lastBackup?'BACKED UP':'NOT BACKED UP';
+  $('#setup-drive-badge').className='tag '+(drive.status==='error'?'pink':drive.lastBackup&&!drive.dirty?'cyan':'');
+  $('#backup-drive').disabled=!drive.canBackup||data.activeInvestigation||importBusy(data.import.status)||state.uploadBusy;
   $('#setup-native-note').classList.toggle('hidden',data.container);
   $('#setup-next-hint').textContent=data.ready?'Your lab is ready. Start with a small investigation, then explore your PDFs and compare exemplars.':'Add your PDFs and check the tools above to start your first investigation.';
-  const blocked=state.uploadBusy||importBusy(data.import.status)||data.activeInvestigation;
+  const blocked=state.uploadBusy||importBusy(data.import.status)||data.activeInvestigation||drive.busy;
   updateRunAvailability();
   $('#setup-first-investigation').disabled=!data.ready||blocked;$('#setup-open-evidence').disabled=!dataset.available;
   $('#dataset-files').disabled=!!blocked;$('#import-dataset').disabled=!state.datasetFiles?.length||!data.canImport||!!state.uploadBusy;
@@ -418,10 +425,11 @@ function renderSetup() {
 async function loadSetup() {
   clearTimeout(state.setupTimer);const request=state.setupRequest=(state.setupRequest||0)+1;
   try {
-    const previous=state.setup?.import?.status,data=await api('/api/setup');if(request!==state.setupRequest)return;
+    const previous=state.setup?.import?.status,previousDrive=state.setup?.drive?.status,data=await api('/api/setup');if(request!==state.setupRequest)return;
     state.setup=data;renderSetup();
-    if((importBusy(data.import.status)||data.activeInvestigation)&&!state.uploadBusy)state.setupTimer=setTimeout(loadSetup,1000);
+    if((importBusy(data.import.status)||data.activeInvestigation||data.drive?.busy||(data.drive?.dirty&&data.drive.status==='ready'))&&!state.uploadBusy)state.setupTimer=setTimeout(loadSetup,2000);
     if(importBusy(previous)&&data.import.status==='completed'&&!state.uploadBusy)await refreshData();
+    if(['pending','restoring'].includes(previousDrive)&&data.drive?.status==='ready'){await refreshData(true);await loadHistory();}
     return data;
   }catch(error){$('#setup-tools-status').textContent=pagesHosting||labConnection.url?'Could not check the remote lab. Check its readiness in Render and reconnect.':'Could not check the lab. Restart it with the Start Lab launcher, then check again.';$('#setup-import-message').className='alert';$('#setup-import-message').textContent=error.message;}
 }
@@ -552,6 +560,7 @@ $('#dataset-drop').addEventListener('dragleave',()=>$('#dataset-drop').classList
 $('#dataset-drop').addEventListener('drop',event=>{event.preventDefault();$('#dataset-drop').classList.remove('dragging');if(!state.uploadBusy&&state.setup?.canImport)chooseDataset(event.dataTransfer.files);});
 $('#import-dataset').addEventListener('click',importDataset);
 $('#refresh-setup').addEventListener('click',loadSetup);
+$('#backup-drive').addEventListener('click',async()=>{try{await api('/api/setup/drive/backup',{});await loadSetup();}catch(error){toast(error.message,true);}});
 $('#setup-open-evidence').addEventListener('click',()=>showView('evidence'));
 $('#setup-first-investigation').addEventListener('click',()=>{const first=state.data?.documents.find(d=>d.available);if(!first)return;$('#builder-documents').value=first.id;$('#builder-tool').value='';$('#builder-type').value='';$('#builder-prefix').value='';$('#template-mode').value='resources';generateScript();setStudioMode('editor');showView('scripts');});
 $('#close-inspector').addEventListener('click',()=>{$('#inspector').close();state.inspector=null;});

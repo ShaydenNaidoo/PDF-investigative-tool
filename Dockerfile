@@ -3,7 +3,7 @@ FROM python:3.12-slim-bookworm
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
        bash qpdf poppler-utils gawk bsdextrautils coreutils findutils \
-       grep sed diffutils file unzip ca-certificates \
+       grep sed diffutils file unzip ca-certificates rclone \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 1000 lab \
     && mkdir -p /workspace/home /workspace/environment/observations /workspace/dataset \

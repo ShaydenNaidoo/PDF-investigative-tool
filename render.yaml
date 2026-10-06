@@ -1,4 +1,5 @@
 # Free service: workspace changes are lost on sleep, restart or redeploy.
+# Optional Google Drive backup/restore: see GOOGLE_DRIVE.md; credentials stay in Render.
 services:
   - type: web
     name: pdf-investigative-lab

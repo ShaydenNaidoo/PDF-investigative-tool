@@ -4,6 +4,8 @@ GitHub Pages hosts the interface. Render Free runs the Docker lab with Python, B
 
 The repository includes `.github/workflows/pages.yml` and `render.yaml`. These prepare deployment; the website is live only after GitHub and Render report successful deployments.
 
+For persistent backups with Render Free, follow [Google Drive setup](GOOGLE_DRIVE.md). After authorization, the app backs up the whole lab and restores the last completed backup on a fresh instance. Without that optional configuration, remote files remain temporary.
+
 ## Publish the interface
 
 1. Push these changes to `main` in [ShaydenNaidoo/PDF-investigative-tool](https://github.com/ShaydenNaidoo/PDF-investigative-tool).

@@ -25,6 +25,7 @@ import lab
 import inspection
 import summaries
 import lab_setup
+import drive_backup
 
 API_VERSION = 5
 
@@ -45,6 +46,8 @@ JOBS, PROCESSES, CACHE = {}, {}, {}
 VIEW_CACHE = OrderedDict()
 SUMMARY_CACHE = OrderedDict()
 IMPORT_STATE = {'status': 'idle'}
+DRIVE = None
+BACKUP_TIMER = None
 CATALOG = {
     'part1_resources.sh': ('Extract resource marks', 'Scan the full observation set with your Bash + qpdf extraction script.', 'none'),
     'test_part1.sh': ('Test one PDF', 'Run your supplied extraction test. Its output is kept separate from the full dataset.', 'document'),
@@ -72,6 +75,65 @@ def importing():
     return IMPORT_STATE['status'] in ('uploading', 'extracting', 'validating', 'installing')
 
 
+def drive_busy():
+    return bool(DRIVE and DRIVE.status()['busy'])
+
+
+def check_drive_idle():
+    if drive_busy():
+        raise ValueError('Google Drive is restoring or backing up this lab. Wait for it to finish in Lab setup.')
+
+
+def request_drive_backup():
+    with LOCK:
+        if importing() or PROCESSES or any(j['status'] in ('queued', 'running') for j in JOBS.values()):
+            raise ValueError('Wait for the import or investigation to finish before backing up.')
+        if not DRIVE:
+            raise ValueError('Configure Google Drive in Render first. See GOOGLE_DRIVE.md.')
+        DRIVE.begin_backup()
+        threading.Thread(target=DRIVE.backup, daemon=True).start()
+        return DRIVE.status()
+
+
+def queue_drive_backup():
+    global BACKUP_TIMER
+    if not DRIVE or not DRIVE.enabled:
+        return
+    DRIVE.changed()
+    def attempt():
+        global BACKUP_TIMER
+        with LOCK:
+            BACKUP_TIMER = None
+            if not DRIVE.status()['dirty']:
+                return
+            if drive_busy() or importing() or any(j['status'] in ('queued', 'running') for j in JOBS.values()):
+                BACKUP_TIMER = threading.Timer(15, attempt)
+                BACKUP_TIMER.daemon = True
+                BACKUP_TIMER.start()
+                return
+            try:
+                request_drive_backup()
+            except ValueError:
+                pass  # The setup panel reports configuration failures; users can retry manually.
+    with LOCK:
+        if BACKUP_TIMER:
+            BACKUP_TIMER.cancel()
+        BACKUP_TIMER = threading.Timer(3, attempt)
+        BACKUP_TIMER.daemon = True
+        BACKUP_TIMER.start()
+
+
+def restore_drive():
+    DRIVE.restore()
+    with LOCK:
+        lab_setup.initialize(OBS, DATASET)
+        JOBS.clear()
+        load_jobs()
+        CACHE.clear()
+        VIEW_CACHE.clear()
+        SUMMARY_CACHE.clear()
+
+
 def setup_status():
     ephemeral = os.environ.get('PDF_LAB_EPHEMERAL') == '1'
     with LOCK:
@@ -80,15 +142,16 @@ def setup_status():
         index = lab.pdf_index()
         expected = set(lab.lines(OBS / 'all'))
         available = len(expected & set(index))
-        can_import = not active and not importing() and os.access(DATASET, os.W_OK)
+        can_import = not active and not importing() and not drive_busy() and os.access(DATASET, os.W_OK)
     dependencies = {name: bool(shutil.which(name)) for name in lab_setup.TOOLS}
     return {'container': os.environ.get('PDF_LAB_CONTAINER') == '1',
-            'ready': all(dependencies.values()) and available > 0,
+            'ready': all(dependencies.values()) and available > 0 and not drive_busy(),
             'dependencies': dependencies, 'dataset': {'pdfs': len(index), 'available': available,
                 'expected': len(expected), 'missing': len(expected - set(index))},
             'scripts': len(catalog()), 'tools': len(list((OBS / 'tools').glob('pr*'))),
             'storage': 'Temporary Render storage' if ephemeral else 'Persistent Render disk' if os.environ.get('RENDER') == 'true' else 'Persistent Docker volume' if os.environ.get('PDF_LAB_CONTAINER') == '1' else 'Local project storage',
             'storageEphemeral': ephemeral,
+            'drive': DRIVE.status() if DRIVE else {'enabled': False, 'busy': False, 'status': 'disabled', 'message': 'Google Drive is not configured. See GOOGLE_DRIVE.md for the one-time setup.'},
             'freeBytes': shutil.disk_usage(DATASET).free if DATASET.is_dir() else 0,
             'import': state, 'canImport': can_import,
             'activeInvestigation': active, 'maxUploadBytes': lab_setup.MAX_UPLOAD_BYTES}
@@ -106,6 +169,7 @@ def import_worker(upload, filename):
             VIEW_CACHE.clear()
             SUMMARY_CACHE.clear()
             IMPORT_STATE.update(result, status='completed', endedAt=now())
+            queue_drive_backup()
     except Exception as error:
         progress(status='failed', message=str(error), endedAt=now())
     finally:
@@ -336,7 +400,7 @@ def worker(job, command):
     final_status = 'failed'
     try:
         with (directory / 'stdout.log').open('w') as out, (directory / 'stderr.log').open('w') as err:
-            env = {**os.environ, 'PDF_OBSERVATIONS_DIR': str(OBS), 'PDF_DATASET_DIR': str(DATASET),
+            env = {**{key: value for key, value in os.environ.items() if not key.startswith('PDF_LAB_DRIVE_')}, 'PDF_OBSERVATIONS_DIR': str(OBS), 'PDF_DATASET_DIR': str(DATASET),
                    'PDF_ANALYZER_HOME': str(STATIC), 'PDF_RUN_DIR': str(directory), 'PYTHONUNBUFFERED': '1'}
             with LOCK:
                 if job['status'] == 'cancelled':
@@ -364,6 +428,7 @@ def worker(job, command):
             job['finalized'] = True
             job['endedAt'] = now()
             save_job(job)
+            queue_drive_backup()
 
 
 def script_path(script):
@@ -413,6 +478,7 @@ def start_run(payload):
     if missing:
         raise ValueError('Missing tools: ' + ', '.join(missing))
     with LOCK:
+        check_drive_idle()
         if importing():
             raise ValueError('Your PDFs are being imported. Wait for setup to finish before running an investigation.')
         if PROCESSES or any(j['status'] in ('queued', 'running') for j in JOBS.values()):
@@ -494,7 +560,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == '/api/health':
                 return self.json({'app': 'pdf-analyzer', 'version': API_VERSION,
-                                  'remote': REMOTE, 'capabilities': ['pdf-inspection', 'result-summaries', 'lab-setup']})
+                                  'remote': REMOTE, 'capabilities': ['pdf-inspection', 'result-summaries', 'lab-setup', 'drive-backup']})
             if path == '/api/setup':
                 return self.json(setup_status())
             if path == '/api/dashboard':
@@ -661,6 +727,8 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(payload, dict):
                 raise ValueError('Expected a JSON object')
             path = urllib.parse.urlparse(self.path).path
+            if path == '/api/setup/drive/backup':
+                return self.json(request_drive_backup(), 202)
             if path == '/api/run':
                 return self.json(start_run(payload), 202)
             if path == '/api/scripts':
@@ -677,13 +745,19 @@ class Handler(BaseHTTPRequestHandler):
                 target = SCRIPTS / (name + '.sh')
                 if target.is_symlink():
                     raise ValueError('Cannot overwrite a symlink')
-                target.write_text(source)
+                with LOCK:
+                    check_drive_idle()
+                    target.write_text(source)
+                    queue_drive_backup()
                 return self.json({'id': 'custom:' + name + '.sh', 'scripts': catalog()})
             if path == '/api/notes':
                 notes = payload.get('notes')
                 if not isinstance(notes, dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in notes.items()):
                     raise ValueError('Notes must be text')
-                (OBS / 'gui-notes.json').write_text(json.dumps(notes, indent=2))
+                with LOCK:
+                    check_drive_idle()
+                    (OBS / 'gui-notes.json').write_text(json.dumps(notes, indent=2))
+                    queue_drive_backup()
                 return self.json({'ok': True})
             if path.startswith('/api/jobs/') and path.endswith('/cancel'):
                 identifier = path.split('/')[3]
@@ -712,6 +786,7 @@ class Handler(BaseHTTPRequestHandler):
             if not 0 < size <= lab_setup.MAX_UPLOAD_BYTES:
                 raise ValueError('Choose a file between 1 byte and 4 GiB. Larger datasets can be split into smaller ZIP files.')
             with LOCK:
+                check_drive_idle()
                 if importing() or any(j['status'] in ('queued', 'running') for j in JOBS.values()):
                     raise ValueError('Wait for the current import or investigation to finish before importing more PDFs.')
                 IMPORT_STATE.clear()
@@ -781,6 +856,9 @@ if __name__ == '__main__':
     seed = Path(os.environ['PDF_SEED_ENVIRONMENT']) if os.environ.get('PDF_SEED_ENVIRONMENT') else None
     lab_setup.initialize(OBS, DATASET, seed)
     load_jobs()
+    DRIVE = drive_backup.DriveBackup(OBS, DATASET, os.environ.get('PDF_LAB_DRIVE_SCOPE', 'workspace'))
+    if DRIVE.enabled:
+        threading.Thread(target=restore_drive, daemon=True).start()
     print(f'PDF Analyzer running at {url}', flush=True)
     if args.open:
         import webbrowser
