@@ -6,6 +6,13 @@
 .env.*
 !.env.example
 
+# Private cloud deployment setup, retained locally for future use
+/GOOGLE_DRIVE.md
+/DEPLOYMENT.md
+/render.yaml
+/.github/workflows/pages.yml
+/PRIVATE_HOSTING_NOTES.md
+
 # Python and editor caches
 __pycache__/
 *.py[cod]

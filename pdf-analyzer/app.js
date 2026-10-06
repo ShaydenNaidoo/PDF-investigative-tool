@@ -3,6 +3,8 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
 const state = {data:null, view:'overview', evidenceMode:'documents', evidenceOffset:0, evidenceSort:'id', evidenceDirection:'asc', studioMode:'library', job:null, running:null, resultOffset:0, resultSort:'', resultDirection:'asc', inspector:null, request:0, notes:{}, timer:null};
+$('#notebook-editor').innerHTML=noteEditorMarkup('notebook-text','','Investigation notes');
+initNoteEditor($('#notebook-editor [data-note-editor]'));
 const types = ['Font','XObject','ColorSpace','ExtGState','Pattern','Shading','Properties'];
 const number = value => Number(value).toLocaleString();
 function animateCount(el, value) {
@@ -308,7 +310,8 @@ async function inspectDocument(id,tab='resources') {
   state.strings={offset:0,request:0};state.objectRequests={};
   $('#inspect-title').textContent=id;$('#open-pdf').href=`/api/documents/${encodeURIComponent(id)}/pdf`;
   const tabs=[['resources','Resources'],['strings','Strings & tags'],['metadata','Metadata'],['numbering','Numbering & reuse'],['marks','Toolmarks'],['notes','Document notes']];
-  $('#inspect-body').innerHTML=`<div id="inspect-summary" class="inspect-summary"><span>Original PDF investigation</span><button class="text-button" data-investigate="${esc(id)}">Investigate this PDF ↗</button></div><div class="inspector-tabs" role="tablist" aria-label="PDF inspection views">${tabs.map(([key,label])=>`<button role="tab" aria-selected="false" aria-controls="inspect-${key}" data-inspect-tab="${key}">${label}</button>`).join('')}</div>${tabs.map(([key])=>`<div id="inspect-${key}" class="inspect-pane" role="tabpanel">${key==='strings'?stringsPane():key==='metadata'?metadataPane(id):key==='notes'?`<textarea id="document-notes" class="inspect-note" aria-label="Document notes" placeholder="Hypothesis, evidence and original object references…">${esc(state.notes[id]||'')}</textarea><button class="primary" id="save-document-notes">Save document notes</button>`:'<div class="empty"><span class="spinner"></span>Reading original PDF evidence…</div>'}</div>`).join('')}`;
+  $('#inspect-body').innerHTML=`<div id="inspect-summary" class="inspect-summary"><span>Original PDF investigation</span><button class="text-button" data-investigate="${esc(id)}">Investigate this PDF ↗</button></div><div class="inspector-tabs" role="tablist" aria-label="PDF inspection views">${tabs.map(([key,label])=>`<button role="tab" aria-selected="false" aria-controls="inspect-${key}" data-inspect-tab="${key}">${label}</button>`).join('')}</div>${tabs.map(([key])=>`<div id="inspect-${key}" class="inspect-pane" role="tabpanel">${key==='strings'?stringsPane():key==='metadata'?metadataPane(id):key==='notes'?`${noteEditorMarkup('document-notes',state.notes[id]||'','Document notes')}<div class="note-save-row"><button class="primary" id="save-document-notes">Save document notes</button><span id="document-notes-status" class="muted small" role="status"></span></div>`:'<div class="empty"><span class="spinner"></span>Reading original PDF evidence…</div>'}</div>`).join('')}`;
+  initNoteEditor($('#inspect-notes [data-note-editor]'));
   if(!$('#inspector').open)$('#inspector').showModal();
   updatePDFButtons();
   selectInspectorTab(tab);return session;
@@ -388,7 +391,7 @@ async function inspectObject(ref,decoded=false,targetName='resources') {
 async function saveNotes() {await api('/api/notes',{notes:state.notes});await loadSetup();}
 async function refreshData(initial=false) {
   const data=await api('/api/dashboard');state.data=data;
-  if(initial){state.notes=data.notes||{};$('#notebook-text').value=state.notes._notebook||'';}
+  if(initial){state.notes=data.notes||{};$('#notebook-text').value=state.notes._notebook||'';initNoteEditor($('#notebook-editor [data-note-editor]'));$('#notes-status').textContent='';}
   $('#offline').classList.add('hidden');$('#connection-text').textContent=labConnection.url?'Remote lab connected':'Lab connected';$('#connection-dot').classList.remove('offline');
   renderDashboard();renderMatrix();renderScripts();updatePDFButtons();if(state.view==='evidence')renderEvidence();
 }
@@ -510,7 +513,7 @@ document.addEventListener('click',async event=>{
   if(target.dataset.summaryTool){$('#summary-tool').value=$('#summary-tool').value===target.dataset.summaryTool?'':target.dataset.summaryTool;state.summaryOffset=0;generateSummary();}
   if(target.dataset.sortContext==='evidence'){state.evidenceDirection=state.evidenceSort===target.dataset.sort&&state.evidenceDirection==='asc'?'desc':'asc';state.evidenceSort=target.dataset.sort;state.evidenceOffset=0;renderEvidence();}
   if(target.dataset.sortContext==='result'){state.resultDirection=state.resultSort===target.dataset.sort&&state.resultDirection==='asc'?'desc':'asc';state.resultSort=target.dataset.sort;state.resultOffset=0;renderResults();}
-  if(target.id==='save-document-notes'){try{state.notes[state.inspector]=$('#document-notes').value;await saveNotes();toast('Document notes saved.');}catch(error){toast(error.message,true);}}
+  if(target.id==='save-document-notes'){const id=state.inspector,value=$('#document-notes').value;try{state.notes[id]=value;await saveNotes();if(state.inspector===id){noteSaved('document-notes',value);$('#document-notes-status').textContent=$('#document-notes').value===value?'Saved':'Unsaved changes';}toast('Document notes saved.');}catch(error){toast(error.message,true);}}
 });
 function searchFromGlobal() {state.evidenceMode='documents';state.evidenceOffset=0;$('#evidence-search').value=$('#global-search').value;$$('[data-evidence-mode]').forEach(el=>el.classList.toggle('active',el.dataset.evidenceMode==='documents'));showView('evidence');}
 const updateGlobalSearch=debounce(searchFromGlobal),updateEvidenceSearch=debounce(()=>{state.evidenceOffset=0;renderEvidence();});
@@ -551,7 +554,22 @@ $('#close-summary').addEventListener('click',()=>{state.summaryActive=false;stat
 $('#export-summary').addEventListener('click',async()=>{if(!state.summaryData)return;try{const query=new URLSearchParams(state.summaryExportQuery);query.set('export','csv');await downloadLabFile(`/api/jobs/${state.summaryData.job}/summary?${query}`);}catch(error){toast(error.message,true);}});
 $('#export-summary-chart').addEventListener('click',()=>{const svg=$('#summary-chart svg');if(svg&&state.summaryData)download(`${state.summaryData.job}-${state.summaryData.source.replace(/\.[^.]+$/,'')}-${$('#summary-metric').value}-summary.svg`,svg.outerHTML,'image/svg+xml');});
 $('#summary-chart').addEventListener('keydown',event=>{const bar=event.target.closest('[data-summary-tool]');if(bar&&['Enter',' '].includes(event.key)){event.preventDefault();bar.dispatchEvent(new MouseEvent('click',{bubbles:true}));}});
-$('#save-notes').addEventListener('click',async()=>{state.notes._notebook=$('#notebook-text').value;try{await saveNotes();$('#notes-status').textContent='Saved '+new Date().toLocaleTimeString();}catch(error){toast(error.message,true);}});
+$('#save-notes').addEventListener('click',async()=>{const value=$('#notebook-text').value;state.notes._notebook=value;try{await saveNotes();noteSaved('notebook-text',value);$('#notes-status').textContent=$('#notebook-text').value===value?'Saved '+new Date().toLocaleTimeString():'Unsaved changes';}catch(error){toast(error.message,true);}});
+$('#open-markdown').addEventListener('click',()=>{
+  const source=$('#notebook-text');
+  if(source.value!==source.dataset.savedNote&&!confirm('Replace the unsaved notebook text with a Markdown file? Export or save your changes first if you need them.'))return;
+  $('#markdown-file').click();
+});
+$('#markdown-file').addEventListener('change',async event=>{
+  const file=event.target.files[0];if(!file)return;
+  try {
+    if(file.size>2*1024*1024)throw new Error('Choose a Markdown file smaller than 2 MiB.');
+    const source=$('#notebook-text'),before=source.value,text=await file.text();
+    if(source.value!==before)throw new Error('Your notes changed while the file was opening. Open the file again when ready.');
+    source.value=text;setNoteMode(source.closest('[data-note-editor]'),'read');
+    $('#notes-status').textContent=`Opened ${file.name} · Save notes to keep this in your lab`;
+  } catch(error){toast(error.message,true);}finally{event.target.value='';}
+});
 $('#export-notes').addEventListener('click',()=>{state.notes._notebook=$('#notebook-text').value;const text=['# PDF Analyzer — Investigation notes',state.notes._notebook||'',...Object.entries(state.notes).filter(([key])=>key!=='_notebook').map(([key,value])=>`## ${key}\n\n${value}`)].join('\n\n');download('pdf-investigation-notes.md',text);});
 $('#refresh').addEventListener('click',async()=>{$('#refresh').classList.add('refreshing');try{await refreshData(!state.data);toast('Evidence refreshed.');}catch(error){toast(error.message,true);}finally{$('#refresh').classList.remove('refreshing');}});
 $('#dataset-files').addEventListener('change',event=>chooseDataset(event.target.files));

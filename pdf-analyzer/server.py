@@ -687,8 +687,8 @@ class Handler(BaseHTTPRequestHandler):
                 if query.get('export'):
                     return self.export(list(detail['resources'][0]) if detail['resources'] else ['document'], detail['resources'], document + '-original-resources.csv')
                 return self.json(detail)
-            files = {'/': 'index.html', '/index.html': 'index.html', '/app.js': 'app.js', '/hosting.js': 'hosting.js', '/pdf-export.js': 'pdf-export.js', '/styles.css': 'styles.css', '/scene.svg': 'scene.svg'}
-            vendor_files = {'jspdf.umd.min.js', 'jspdf.plugin.autotable.min.js', 'DejaVuSans.ttf', 'DejaVuSans-Bold.ttf'}
+            files = {'/': 'index.html', '/index.html': 'index.html', '/app.js': 'app.js', '/notes.js': 'notes.js', '/hosting.js': 'hosting.js', '/pdf-export.js': 'pdf-export.js', '/styles.css': 'styles.css', '/scene.svg': 'scene.svg'}
+            vendor_files = {'marked.umd.js', 'purify.min.js', 'jspdf.umd.min.js', 'jspdf.plugin.autotable.min.js', 'DejaVuSans.ttf', 'DejaVuSans-Bold.ttf'}
             if path.startswith('/vendor/') and path.removeprefix('/vendor/') in vendor_files:
                 file = STATIC / path.lstrip('/')
                 return self.body(file.read_bytes(), 'font/ttf' if file.suffix == '.ttf' else 'text/javascript; charset=utf-8')

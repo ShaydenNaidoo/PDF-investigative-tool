@@ -22,7 +22,11 @@ Change the port with `--port` if 8766 is occupied. Restart the server after chan
 
 ## Investigate without terminal commands
 
-**Export PDF** downloads complete matching evidence and result tables, comparisons, summary charts/tables and notebooks. In the document dossier, **Export view PDF** exports the selected investigation view. **Export entire run PDF** includes every saved table and full console logs for a completed run. See [PDF exports and remote deployment](../DEPLOYMENT.md).
+**Field notebook** and **Document notes** support Markdown with **Read**, **Edit** and **Split** views. Read displays headings, lists, tables, links, blockquotes, task lists and code; Split previews your text as you type. Notes with saved content open in Read mode. **On this page** links jump to headings in longer notes. On small screens, Split stacks the editor above the preview.
+
+In **Field notebook**, choose **Open .md file** to read or edit a Markdown file (up to 2 MiB), including your assignment guide or exported notes. Opening a file changes the editor; choose **Save notes** to keep that text in the lab. Unsaved changes are marked. **Export notes** retains the original Markdown, and existing PDF exports remain available. Markdown rendering works offline; images and executable HTML are omitted from previews.
+
+**Export PDF** downloads complete matching evidence and result tables, comparisons, summary charts/tables and notebooks. In the document dossier, **Export view PDF** exports the selected investigation view. **Export entire run PDF** includes every saved table and full console logs for a completed run.
 
 - **Lab setup:** automatic environment preparation, tool checks, browser PDF/ZIP imports and readiness status.
 - **Dashboard:** real dataset counts, resource-prefix frequencies, tool availability, and assignment examples to inspect.
@@ -113,7 +117,7 @@ Resource tables page through every matching row and export the complete filtered
 
 ## Validation
 
-Run `python3 -m unittest discover -s pdf-analyzer -v`. The 36 tests use isolated fixture data and check source object references, local resource scopes and numbering gaps, API filtering/exports, script execution and persistence, cancellation, local request validation, and separation of single-document test results. They also cover strings offsets and search, exact tags, compressed objects/content, decoded streams, custom metadata and XMP, index limits, and preservation of the original PDF. Summary tests cover full-table aggregation, distinct-PDF counts, filters, coverage denominators, missing IDs, overlapping membership, complete exports, and cache refresh when results or exemplar sets change. They also check capability reporting and rejection of unknown run views and resource columns used as PDF IDs. Google Drive tests verify whole-lab restore, interrupted backups, checksums, credential handling and transfer guards using real rclone with temporary local storage; six tests skip if rclone is missing outside Docker. For live persistence, follow [Google Drive setup](../GOOGLE_DRIVE.md).
+Run `python3 -m unittest discover -s pdf-analyzer -v`. The 36 tests use isolated fixture data and check source object references, local resource scopes and numbering gaps, API filtering/exports, script execution and persistence, cancellation, local request validation, and separation of single-document test results. They also cover strings offsets and search, exact tags, compressed objects/content, decoded streams, custom metadata and XMP, index limits, and preservation of the original PDF. Summary tests cover full-table aggregation, distinct-PDF counts, filters, coverage denominators, missing IDs, overlapping membership, complete exports, and cache refresh when results or exemplar sets change. They also check capability reporting and rejection of unknown run views and resource columns used as PDF IDs. Google Drive tests verify whole-lab restore, interrupted backups, checksums, credential handling and transfer guards using real rclone with temporary local storage; six tests skip if rclone is missing outside Docker.
 
 Browser workflow checks also covered the real dataset, supplied test script, generated-script execution, original PDF inspection, results tables, the 15-tool matrix, mobile layout, and reduced motion.
 

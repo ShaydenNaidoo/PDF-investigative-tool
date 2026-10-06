@@ -5,7 +5,7 @@ from pathlib import Path
 import shutil
 
 SOURCE = Path(__file__).resolve().parent
-ASSETS = ('index.html', 'app.js', 'hosting.js', 'pdf-export.js', 'styles.css', 'scene.svg')
+ASSETS = ('index.html', 'app.js', 'notes.js', 'hosting.js', 'pdf-export.js', 'styles.css', 'scene.svg')
 
 
 def build(destination):
