@@ -1,4 +1,5 @@
 # PDF Analyzer · Vice Lab
+To use this lab online you will need a lab access key please contact: shnaidoo1908@gmail.com for the access key 
 
 A local GUI for COS 721 PDF toolmark investigations, with a synthwave interface, neon effects, script editing, live investigation output, searchable evidence tables, and CSV exports.
 
